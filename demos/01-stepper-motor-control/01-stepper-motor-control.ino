@@ -26,6 +26,13 @@ const int DRIVER_STEPS[4][4] = {
   {HIGH, LOW,  LOW,  HIGH}
 };
 
+typedef struct {
+  SegmentType type;
+  unsigned long timeframe[2];
+  int* values;
+} ProfileSegment;
+
+
 // Global variables for internal position pseudo-recording
 int Global_step_counter = 0;
 int internal_step_position = 0;
