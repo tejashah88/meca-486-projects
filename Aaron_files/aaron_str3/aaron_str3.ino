@@ -1,129 +1,256 @@
-// Hardware pin setup
+// STR3 Stepper Driver Control
+// Direction: D9, Step: D10, Button: D22
+// 800 microsteps per revolution
 
-const int STEP_PIN   = 10;
-const int DIR_PIN    = 9;
-
-// Stepper motor control
+const int DIR_PIN = 9;
+const int STEP_PIN = 10;
+const int BUTTON_PIN = 22;
 
 const int STEPS_PER_REV = 200;
-const unsigned long STEP_PULSE_US = 250;
-
-// Calculate period from RPM
-unsigned long rpmToPeriod(float rpm) {
-  if (rpm < 0.1) rpm = 0.1; // Prevent division by zero
-  return 60000000UL / (rpm * STEPS_PER_REV);
-}
-
 
 void setup() {
-  // Setup up configuration pins
-  pinMode(STEP_PIN, OUTPUT); // 0 = stepping, 1 = not stepping
-  pinMode(DIR_PIN, OUTPUT);  // 0 = CW, 1 = CCW
-
-  // Enable switch
-  pinMode(22, INPUT);
-  pinMode(13, OUTPUT);
-
-  digitalWrite(DIR_PIN, LOW);
-  digitalWrite(STEP_PIN, HIGH);
-}
-
-
-// Trapezoidal move with specified parameters
-// maxVelocityRPM: peak velocity in RPM
-// totalTimeMs: total time for move in milliseconds
-// revolutions: number of revolutions to move (negative = CCW, positive = CW)
-void trapezoidalMove(float maxVelocityRPM, float totalTimeMs, float revolutions) {
-  // Set direction based on sign of revolutions
-  if (revolutions < 0) {
-    digitalWrite(DIR_PIN, HIGH); // CCW
-  } else {
-    digitalWrite(DIR_PIN, LOW);  // CW
-  }
-
-  // Use absolute value for calculations
-  float absRevolutions = abs(revolutions);
-  int totalSteps = (int)(absRevolutions * STEPS_PER_REV);
-  float X = totalSteps; // Total distance in steps
-
-  // Convert max velocity to steps/ms
-  float V = (maxVelocityRPM * STEPS_PER_REV) / 60000.0; // steps/ms
-
-  // Calculate acceleration time using: t_a = t_m - X/V
-  float accelTimeMs = totalTimeMs - (X / V);
-
-  // Check if trapezoidal profile is achievable
-  if (accelTimeMs <= 0) {
-    // Cannot reach max velocity - use triangular profile: V = 2X/t_m
-    accelTimeMs = totalTimeMs / 2.0;
-    V = (2.0 * X) / totalTimeMs;
-  }
-
-  float decelTimeMs = accelTimeMs; // Symmetric profile
-  float cruiseTimeMs = totalTimeMs - 2.0 * accelTimeMs;
-
-  // Calculate step counts for each phase
-  int accelSteps = (int)(0.5 * V * accelTimeMs);
-  int decelSteps = accelSteps;
-  int cruiseSteps = totalSteps - accelSteps - decelSteps;
-
-  // Calculate acceleration (a = V/t_a) in steps/ms^2
-  float acceleration = V / accelTimeMs;
-
-  // Execute the move
-  unsigned long nextStepMicros = micros();
-
-  for (int i = 0; i < totalSteps; i++) {
-    float currentVelocity; // steps/ms
-
-    // Acceleration phase
-    if (i < accelSteps) {
-      float progress = (float)i / accelSteps;
-      currentVelocity = V * progress;
-    }
-    // Cruise phase
-    else if (i < accelSteps + cruiseSteps) {
-      currentVelocity = V;
-    }
-    // Deceleration phase
-    else {
-      int decelStep = i - (accelSteps + cruiseSteps);
-      float progress = 1.0 - ((float)decelStep / decelSteps);
-      currentVelocity = V * progress;
-    }
-
-    // Calculate step period in microseconds
-    unsigned long stepPeriodUs;
-    if (currentVelocity > 0.0001) {
-      stepPeriodUs = (unsigned long)(1000.0 / currentVelocity);
-    } else {
-      stepPeriodUs = 100000; // Very slow fallback
-    }
-
-    // Wait until it's time for the next step
-    while (micros() < nextStepMicros);
-
-    // Execute step
-    digitalWrite(STEP_PIN, LOW);
-    delayMicroseconds(STEP_PULSE_US);
-    digitalWrite(STEP_PIN, HIGH);
-
-    nextStepMicros += stepPeriodUs;
+  pinMode(DIR_PIN, OUTPUT);
+  pinMode(STEP_PIN, OUTPUT);
+  pinMode(BUTTON_PIN, INPUT_PULLUP);
+  
+  Serial.begin(115200);
+  Serial.println("STR3 Stepper Ready");
+  
+  // Wait for button to be released before starting
+  while (digitalRead(BUTTON_PIN) == LOW) {
+    delay(10);
   }
 }
-
 
 void loop() {
-  int shouldStartMotor = digitalRead(22);
-  digitalWrite(13, shouldStartMotor);
-
-  if (shouldStartMotor) {
-    // Example: 100 RPM max velocity, 3000ms total time, 1 revolution CW
-    trapezoidalMove(150.0, 5000.0, 10.0);
-    delay(1000);
-
-    // -1 revolution = CCW (direction set automatically)
-    trapezoidalMove(100.0, 3000.0, -10.0);
-    delay(1000);
+  // Wait for button press (active LOW with pullup)
+  if (digitalRead(BUTTON_PIN) == LOW) {
+    delay(50); // debounce
+    if (digitalRead(BUTTON_PIN) == LOW) {
+      // Example: Trapezoidal move
+      trapezoidalMove(90.0, 600, 10.0); // revolutions, targetRPM, totalTime(seconds)
+      
+      // Wait for button release
+      while (digitalRead(BUTTON_PIN) == LOW) {
+        delay(10);
+      }
+    }
   }
+}
+
+void rotate(float revolutions, int rpm) {
+  int totalSteps = revolutions * STEPS_PER_REV;
+  int stepDelay = (60000000 / (rpm * STEPS_PER_REV)) / 2; // microseconds
+  
+  digitalWrite(DIR_PIN, revolutions > 0 ? HIGH : LOW);
+  totalSteps = abs(totalSteps);
+  
+  for (int i = 0; i < totalSteps; i++) {
+    digitalWrite(STEP_PIN, HIGH);
+    delayMicroseconds(stepDelay);
+    digitalWrite(STEP_PIN, LOW);
+    delayMicroseconds(stepDelay);
+  }
+}
+
+void trapezoidalMove(float revolutions, float targetRPM, float totalTime) {
+  int totalSteps = abs(revolutions * STEPS_PER_REV);
+  digitalWrite(DIR_PIN, revolutions > 0 ? LOW : HIGH); // Negative revs = CCW (HIGH)
+  
+  // Convert RPM to steps/sec
+  float targetSpeed = (targetRPM * STEPS_PER_REV) / 60.0; // steps/sec
+  
+  // Calculate if we can reach target velocity
+  // For trapezoidal: D = V*(T - t_accel), where t_accel = (V*T - D)/V
+  float t_accel = totalTime - (totalSteps / targetSpeed);
+  float t_cruise = totalTime - 2.0 * t_accel;
+  
+  Serial.print("t_accel=");
+  Serial.print(t_accel, 3);
+  Serial.print("s, t_cruise=");
+  Serial.print(t_cruise, 3);
+  Serial.println("s");
+  
+  if (t_accel <= 0 || t_cruise < 0) {
+    // Triangular profile - can't reach target velocity
+    // Peak velocity for triangular: V_peak = 2*D/T
+    float peakSpeed = (2.0 * totalSteps) / totalTime;
+    float t_ramp = totalTime / 2.0;
+    float accel = peakSpeed / t_ramp;
+    
+    executeTriangular(totalSteps, peakSpeed, accel, t_ramp);
+  } else {
+    // Trapezoidal profile
+    float accel = targetSpeed / t_accel;
+    int accelSteps = (int)(0.5 * accel * t_accel * t_accel);
+    int cruiseSteps = (int)(targetSpeed * t_cruise);
+    int decelSteps = totalSteps - accelSteps - cruiseSteps;
+    
+    executeTrapezoidal(accelSteps, cruiseSteps, decelSteps, targetSpeed, accel, t_accel, t_cruise);
+  }
+}
+
+void executeTrapezoidal(int accelSteps, int cruiseSteps, int decelSteps, float maxSpeed, float accel, float t_accel_expected, float t_cruise_expected) {
+  unsigned long stepDelayMicros;
+  float currentSpeed;
+  unsigned long startTime, accelTime, cruiseTime, decelTime;
+  int totalSteps = accelSteps + cruiseSteps + decelSteps;
+  
+  // Acceleration phase
+  startTime = micros();
+  for (int i = 0; i < accelSteps; i++) {
+    float t = sqrt((2.0 * i) / accel);
+    currentSpeed = accel * t;
+    if (currentSpeed < 1.0) currentSpeed = 1.0;
+    stepDelayMicros = (unsigned long)(1000000.0 / currentSpeed);
+    
+    digitalWrite(STEP_PIN, HIGH);
+    delayMicroseconds(stepDelayMicros / 2);
+    digitalWrite(STEP_PIN, LOW);
+    delayMicroseconds(stepDelayMicros / 2);
+  }
+  accelTime = micros();
+  
+  // Cruise phase
+  stepDelayMicros = (unsigned long)(1000000.0 / maxSpeed);
+  for (int i = 0; i < cruiseSteps; i++) {
+    digitalWrite(STEP_PIN, HIGH);
+    delayMicroseconds(stepDelayMicros / 2);
+    digitalWrite(STEP_PIN, LOW);
+    delayMicroseconds(stepDelayMicros / 2);
+  }
+  cruiseTime = micros();
+  
+  // Deceleration phase
+  for (int i = 0; i < decelSteps; i++) {
+    int stepsRemaining = decelSteps - i;
+    float t = sqrt((2.0 * stepsRemaining) / accel);
+    currentSpeed = accel * t;
+    if (currentSpeed < 1.0) currentSpeed = 1.0;
+    stepDelayMicros = (unsigned long)(1000000.0 / currentSpeed);
+    
+    digitalWrite(STEP_PIN, HIGH);
+    delayMicroseconds(stepDelayMicros / 2);
+    digitalWrite(STEP_PIN, LOW);
+    delayMicroseconds(stepDelayMicros / 2);
+  }
+  decelTime = micros();
+  
+  // Calculate actual times
+  float t_accel_actual = (accelTime - startTime) / 1000000.0;
+  float t_cruise_actual = (cruiseTime - accelTime) / 1000000.0;
+  float t_decel_actual = (decelTime - cruiseTime) / 1000000.0;
+  float t_total_actual = (decelTime - startTime) / 1000000.0;
+  
+  Serial.println("--- Move Complete: Trapezoidal ---");
+  Serial.print("Total Steps: ");
+  Serial.println(totalSteps);
+  
+  Serial.print("Accel:  Expected=");
+  Serial.print(t_accel_expected, 3);
+  Serial.print("s, Actual=");
+  Serial.print(t_accel_actual, 3);
+  Serial.println("s");
+  
+  Serial.print("Cruise: Expected=");
+  Serial.print(t_cruise_expected, 3);
+  Serial.print("s, Actual=");
+  Serial.print(t_cruise_actual, 3);
+  Serial.println("s");
+  
+  Serial.print("Decel:  Expected=");
+  Serial.print(t_accel_expected, 3);
+  Serial.print("s, Actual=");
+  Serial.print(t_decel_actual, 3);
+  Serial.println("s");
+  
+  float t_total_expected = t_accel_expected * 2.0 + t_cruise_expected;
+  float error = t_total_actual - t_total_expected;
+  float errorPercent = (error / t_total_expected) * 100.0;
+  
+  Serial.print("Total:  Expected=");
+  Serial.print(t_total_expected, 3);
+  Serial.print("s, Actual=");
+  Serial.print(t_total_actual, 3);
+  Serial.print("s, Error=");
+  Serial.print(error, 3);
+  Serial.print("s (");
+  Serial.print(errorPercent, 2);
+  Serial.println("%)");
+}
+
+void executeTriangular(int totalSteps, float peakSpeed, float accel, float t_ramp) {
+  int halfSteps = totalSteps / 2;
+  unsigned long stepDelayMicros;
+  float currentSpeed;
+  unsigned long startTime, accelTime, decelTime;
+  
+  // Acceleration phase
+  startTime = micros();
+  for (int i = 0; i < halfSteps; i++) {
+    float t = sqrt((2.0 * i) / accel);
+    currentSpeed = accel * t;
+    if (currentSpeed < 1.0) currentSpeed = 1.0;
+    stepDelayMicros = (unsigned long)(1000000.0 / currentSpeed);
+    
+    digitalWrite(STEP_PIN, HIGH);
+    delayMicroseconds(stepDelayMicros / 2);
+    digitalWrite(STEP_PIN, LOW);
+    delayMicroseconds(stepDelayMicros / 2);
+  }
+  accelTime = micros();
+  
+  // Deceleration phase
+  int remainingSteps = totalSteps - halfSteps;
+  for (int i = 0; i < remainingSteps; i++) {
+    int stepsRemaining = remainingSteps - i;
+    float t = sqrt((2.0 * stepsRemaining) / accel);
+    currentSpeed = accel * t;
+    if (currentSpeed < 1.0) currentSpeed = 1.0;
+    stepDelayMicros = (unsigned long)(1000000.0 / currentSpeed);
+    
+    digitalWrite(STEP_PIN, HIGH);
+    delayMicroseconds(stepDelayMicros / 2);
+    digitalWrite(STEP_PIN, LOW);
+    delayMicroseconds(stepDelayMicros / 2);
+  }
+  decelTime = micros();
+  
+  // Calculate actual times
+  float t_accel_actual = (accelTime - startTime) / 1000000.0;
+  float t_decel_actual = (decelTime - accelTime) / 1000000.0;
+  float t_total_actual = (decelTime - startTime) / 1000000.0;
+  
+  Serial.println("--- Move Complete: Triangular ---");
+  Serial.print("Total Steps: ");
+  Serial.println(totalSteps);
+  
+  Serial.print("Accel:  Expected=");
+  Serial.print(t_ramp, 3);
+  Serial.print("s, Actual=");
+  Serial.print(t_accel_actual, 3);
+  Serial.println("s");
+  
+  Serial.print("Cruise: Expected=0.000s, Actual=0.000s");
+  Serial.println();
+  
+  Serial.print("Decel:  Expected=");
+  Serial.print(t_ramp, 3);
+  Serial.print("s, Actual=");
+  Serial.print(t_decel_actual, 3);
+  Serial.println("s");
+  
+  float t_total_expected = t_ramp * 2.0;
+  float error = t_total_actual - t_total_expected;
+  float errorPercent = (error / t_total_expected) * 100.0;
+  
+  Serial.print("Total:  Expected=");
+  Serial.print(t_total_expected, 3);
+  Serial.print("s, Actual=");
+  Serial.print(t_total_actual, 3);
+  Serial.print("s, Error=");
+  Serial.print(error, 3);
+  Serial.print("s (");
+  Serial.print(errorPercent, 2);
+  Serial.println("%)");
 }
