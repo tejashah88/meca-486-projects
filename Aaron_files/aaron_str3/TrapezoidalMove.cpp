@@ -8,15 +8,23 @@ void updateLCD() {
   if (micros() - lastUpdate < 100000) return; // max 10 Hz
   lastUpdate = micros();
 
-  lcd.setCursor(0, 0);
-  lcd.print("Pos:");
-  lcd.print((float)motorPosition / STEPS_PER_REV, 2);
-  lcd.print(" rev    ");
+  bool atHome = (digitalRead(SENSOR_PIN_2) == LOW);
+  bool atEnd  = (digitalRead(SENSOR_PIN_1) == LOW);
 
+  // Line 1: position — dtostrf avoids %f which Arduino snprintf doesn't support
+  char posStr[8];
+  dtostrf((float)motorPosition / STEPS_PER_REV, 6, 2, posStr); // e.g. "  1.23"
+  char line[17];
+  snprintf(line, sizeof(line), "Pos:%s rev  ", posStr); // always 16 chars
+  lcd.setCursor(0, 0);
+  lcd.print(line);
+
+  // Line 2: limit status
   lcd.setCursor(0, 1);
-  lcd.print("Vel:");
-  lcd.print(currentSpeedRPS, 2);
-  lcd.print(" RPS    ");
+  if      (atEnd && atHome) lcd.print("!!BOTH LIMITS!! ");
+  else if (atEnd)           lcd.print("** END  LIMIT **");
+  else if (atHome)          lcd.print("** HOME LIMIT **");
+  else                      lcd.print("   Status: OK   ");
 }
 
 bool limitTriggered() {
@@ -54,8 +62,8 @@ void profileMove(float accelRevs, float cruiseRevs, float decelRevs, float cruis
   Serial.print(", Decel revs="); Serial.println(decelRevs);
   Serial.print("Cruise RPS="); Serial.println(cruiseRPS);
 
-  unsigned long stepDelayMicros;
   float currentSpeed;
+  unsigned long stepDelayMicros;
   unsigned long startTime, accelTime, cruiseTime, decelTime;
 
   // --- Acceleration phase ---
@@ -65,8 +73,8 @@ void profileMove(float accelRevs, float cruiseRevs, float decelRevs, float cruis
     currentSpeed = sqrt(2.0 * accel * i);
     if (currentSpeed < 1.0) currentSpeed = 1.0;
     stepDelayMicros = (unsigned long)(1000000.0 / currentSpeed);
-
     currentSpeedRPS = currentSpeed / STEPS_PER_REV;
+
     digitalWrite(STEP_PIN, HIGH);
     delayMicroseconds(stepDelayMicros / 2);
     digitalWrite(STEP_PIN, LOW);
@@ -127,6 +135,7 @@ void profileMove(float accelRevs, float cruiseRevs, float decelRevs, float cruis
   Serial.print("s, Actual="); Serial.print(t_total_actual, 3);
   Serial.print("s, Error="); Serial.print(error, 3);
   Serial.print("s ("); Serial.print(errorPercent, 2); Serial.println("%)");
+  updateLCD();
 }
 
 // trapezoidalMove: move a given number of revolutions in a fixed total time,
@@ -394,6 +403,7 @@ void homeAxis(float slowRPS) {
   }
   motorPosition = 0;
   Serial.println("Home found. Position = 0.");
+  updateLCD();
 }
 
 void findEnd(float slowRPS) {
@@ -418,6 +428,7 @@ void findEnd(float slowRPS) {
   Serial.print("End found. endPosition="); Serial.print(endPosition);
   Serial.print(" steps, axisLength="); Serial.print(axisLength);
   Serial.println(" steps");
+  updateLCD();
 }
 
 void calibrateAxis(float slowRPS) {

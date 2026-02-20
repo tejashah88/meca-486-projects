@@ -51,8 +51,10 @@ void loop() {
   delay(50); // debounce
   if (digitalRead(BUTTON_PIN) == LOW) {
     // accelRevs, cruiseRevs, decelRevs, cruiseRPS
-    profileMove(2.0, 20.0, 2.0, 15);
-    profileMove(-2.0, -20.0, -2.0, 15);
+    profileMove(2.0, 40.0, 2.0, 15);
+    profileMove(-2.0, -10.0, -2.0, 15);
+    profileMove(2.0, 50.0, 2.0, 10);
+    moveToHome(15);
     while (digitalRead(BUTTON_PIN) == LOW) {
       delay(10);
     }
