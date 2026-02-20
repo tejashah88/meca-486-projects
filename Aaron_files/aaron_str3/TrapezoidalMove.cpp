@@ -3,6 +3,22 @@
 
 #include "TrapezoidalMove.h"
 
+void updateLCD() {
+  static unsigned long lastUpdate = 0;
+  if (micros() - lastUpdate < 100000) return; // max 10 Hz
+  lastUpdate = micros();
+
+  lcd.setCursor(0, 0);
+  lcd.print("Pos:");
+  lcd.print((float)motorPosition / STEPS_PER_REV, 2);
+  lcd.print(" rev    ");
+
+  lcd.setCursor(0, 1);
+  lcd.print("Vel:");
+  lcd.print(currentSpeedRPS, 2);
+  lcd.print(" RPS    ");
+}
+
 bool limitTriggered() {
   bool movingTowardEnd = (digitalRead(DIR_PIN) == LOW);
   if (movingTowardEnd) {
@@ -13,7 +29,8 @@ bool limitTriggered() {
 }
 
 void profileMove(float accelRevs, float cruiseRevs, float decelRevs, float cruiseRPS) {
-  digitalWrite(DIR_PIN, accelRevs > 0 ? LOW : HIGH); // Negative = CCW (HIGH)
+  digitalWrite(DIR_PIN, accelRevs > 0 ? LOW : HIGH);
+  int8_t dir = (accelRevs > 0) ? 1 : -1;
 
   int accelSteps  = (int)(abs(accelRevs)  * STEPS_PER_REV);
   int cruiseSteps = (int)(abs(cruiseRevs) * STEPS_PER_REV);
@@ -49,14 +66,17 @@ void profileMove(float accelRevs, float cruiseRevs, float decelRevs, float cruis
     if (currentSpeed < 1.0) currentSpeed = 1.0;
     stepDelayMicros = (unsigned long)(1000000.0 / currentSpeed);
 
+    currentSpeedRPS = currentSpeed / STEPS_PER_REV;
     digitalWrite(STEP_PIN, HIGH);
     delayMicroseconds(stepDelayMicros / 2);
     digitalWrite(STEP_PIN, LOW);
     delayMicroseconds(stepDelayMicros / 2);
+    motorPosition += dir;
   }
   accelTime = micros();
 
   // --- Cruise phase ---
+  currentSpeedRPS = cruiseSpeed / STEPS_PER_REV;
   stepDelayMicros = (unsigned long)(1000000.0 / cruiseSpeed);
   for (int i = 0; i < cruiseSteps; i++) {
     if (limitTriggered()) { Serial.println("Limit hit during cruise!"); break; }
@@ -64,6 +84,7 @@ void profileMove(float accelRevs, float cruiseRevs, float decelRevs, float cruis
     delayMicroseconds(stepDelayMicros / 2);
     digitalWrite(STEP_PIN, LOW);
     delayMicroseconds(stepDelayMicros / 2);
+    motorPosition += dir;
   }
   cruiseTime = micros();
 
@@ -74,12 +95,15 @@ void profileMove(float accelRevs, float cruiseRevs, float decelRevs, float cruis
     currentSpeed = sqrt(2.0 * decel * stepsRemaining);
     if (currentSpeed < 1.0) currentSpeed = 1.0;
     stepDelayMicros = (unsigned long)(1000000.0 / currentSpeed);
+    currentSpeedRPS = currentSpeed / STEPS_PER_REV;
 
     digitalWrite(STEP_PIN, HIGH);
     delayMicroseconds(stepDelayMicros / 2);
     digitalWrite(STEP_PIN, LOW);
     delayMicroseconds(stepDelayMicros / 2);
+    motorPosition += dir;
   }
+  currentSpeedRPS = 0;
   decelTime = micros();
 
   // --- Report ---
@@ -105,44 +129,71 @@ void profileMove(float accelRevs, float cruiseRevs, float decelRevs, float cruis
   Serial.print("s ("); Serial.print(errorPercent, 2); Serial.println("%)");
 }
 
+// trapezoidalMove: move a given number of revolutions in a fixed total time,
+// trying to reach maxRPS at cruise speed.
+//
+// The motion profile looks like one of two shapes depending on whether
+// there is enough distance to reach maxRPS:
+//
+//   Trapezoidal (can reach maxRPS):       Triangular (too short, can't reach maxRPS):
+//
+//   speed                                  speed
+//     |     ___________                      |       /\
+//     |    /           \                     |      /  \
+//     |   /             \                    |     /    \
+//     |  /               \                   |    /      \
+//     |_/                 \__                |___/        \___
+//        accel  cruise  decel   time              accel decel  time
+//
+// The key constraint is: total distance = area under the speed-time curve.
+// For trapezoidal: D = V_max * t_cruise + V_max * t_accel
+//   Rearranging for t_accel: t_accel = T - D/V_max
+//   Then: t_cruise = T - 2*t_accel
+//
+// If t_accel <= 0 or t_cruise < 0, the distance is too short to reach
+// maxRPS in the given time, so we fall back to a triangular profile where
+// the motor ramps up to a lower peak speed and immediately decelerates.
+//   Peak speed for triangle: V_peak = 2*D/T  (area of triangle = D)
+
 void trapezoidalMove(float revolutions, float maxRPS, float totalTime) {
   int totalSteps = abs(revolutions * STEPS_PER_REV);
-  digitalWrite(DIR_PIN, revolutions > 0 ? LOW : HIGH); // Negative revs = CCW (HIGH)
-  
-  // Convert RPS to steps/sec
-  float maxSpeed = maxRPS * STEPS_PER_REV; // steps/sec
-  
-  // Calculate if we can reach target velocity
-  // For trapezoidal: D = V*(T - t_accel), where t_accel = (V*T - D)/V
-  float t_accel = totalTime - (totalSteps / maxSpeed);
+  digitalWrite(DIR_PIN, revolutions > 0 ? LOW : HIGH);
+
+  // Convert the cruise speed cap from RPS to steps/sec
+  float maxSpeed = maxRPS * STEPS_PER_REV;
+
+  // Solve for how long the accel and cruise phases need to be.
+  // Derived from: D = V*(T - t_accel)  →  t_accel = T - D/V
+  float t_accel  = totalTime - (totalSteps / maxSpeed);
   float t_cruise = totalTime - 2.0 * t_accel;
-  
-  Serial.print("t_accel=");
-  Serial.print(t_accel, 3);
-  Serial.print("s, t_cruise=");
-  Serial.print(t_cruise, 3);
-  Serial.println("s");
-  
+
+  Serial.print("t_accel="); Serial.print(t_accel, 3);
+  Serial.print("s, t_cruise="); Serial.print(t_cruise, 3); Serial.println("s");
+
   if (t_accel <= 0 || t_cruise < 0) {
-    // Triangular profile - can't reach target velocity
-    // Peak velocity for triangular: V_peak = 2*D/T
+    // Distance too short to reach maxRPS — use a triangular profile instead.
+    // Peak speed is whatever fills the triangle: V_peak = 2*D/T
     float peakSpeed = (2.0 * totalSteps) / totalTime;
-    float t_ramp = totalTime / 2.0;
-    float accel = peakSpeed / t_ramp;
-    
+    float t_ramp    = totalTime / 2.0;           // equal accel and decel time
+    float accel     = peakSpeed / t_ramp;        // a = V/t
+
     executeTriangular(totalSteps, peakSpeed, accel, t_ramp);
   } else {
-    // Trapezoidal profile
+    // Enough distance — use a full trapezoidal profile.
+    // Acceleration rate: a = V/t  (ramp linearly from 0 to maxSpeed)
     float accel = maxSpeed / t_accel;
-    int accelSteps = (int)(0.5 * accel * t_accel * t_accel);
+
+    // Step counts for each phase using kinematics: d = ½*a*t²  and  d = V*t
+    int accelSteps  = (int)(0.5 * accel * t_accel * t_accel);
     int cruiseSteps = (int)(maxSpeed * t_cruise);
-    int decelSteps = totalSteps - accelSteps - cruiseSteps;
-    
+    int decelSteps  = totalSteps - accelSteps - cruiseSteps; // remainder
+
     executeTrapezoidal(accelSteps, cruiseSteps, decelSteps, maxSpeed, accel, t_accel, t_cruise);
   }
 }
 
 void executeTrapezoidal(int accelSteps, int cruiseSteps, int decelSteps, float maxSpeed, float accel, float t_accel_expected, float t_cruise_expected) {
+  int8_t dir = (digitalRead(DIR_PIN) == LOW) ? 1 : -1;
   unsigned long stepDelayMicros;
   float currentSpeed;
   unsigned long startTime, accelTime, cruiseTime, decelTime;
@@ -157,14 +208,17 @@ void executeTrapezoidal(int accelSteps, int cruiseSteps, int decelSteps, float m
     if (currentSpeed < 1.0) currentSpeed = 1.0;
     stepDelayMicros = (unsigned long)(1000000.0 / currentSpeed);
     
+    currentSpeedRPS = currentSpeed / STEPS_PER_REV;
     digitalWrite(STEP_PIN, HIGH);
     delayMicroseconds(stepDelayMicros / 2);
     digitalWrite(STEP_PIN, LOW);
     delayMicroseconds(stepDelayMicros / 2);
+    motorPosition += dir;
   }
   accelTime = micros();
   
   // Cruise phase
+  currentSpeedRPS = maxSpeed / STEPS_PER_REV;
   stepDelayMicros = (unsigned long)(1000000.0 / maxSpeed);
   for (int i = 0; i < cruiseSteps; i++) {
     if (limitTriggered()) { Serial.println("Limit hit during cruise!"); break; }
@@ -172,6 +226,7 @@ void executeTrapezoidal(int accelSteps, int cruiseSteps, int decelSteps, float m
     delayMicroseconds(stepDelayMicros / 2);
     digitalWrite(STEP_PIN, LOW);
     delayMicroseconds(stepDelayMicros / 2);
+    motorPosition += dir;
   }
   cruiseTime = micros();
   
@@ -183,12 +238,15 @@ void executeTrapezoidal(int accelSteps, int cruiseSteps, int decelSteps, float m
     currentSpeed = accel * t;
     if (currentSpeed < 1.0) currentSpeed = 1.0;
     stepDelayMicros = (unsigned long)(1000000.0 / currentSpeed);
+    currentSpeedRPS = currentSpeed / STEPS_PER_REV;
     
     digitalWrite(STEP_PIN, HIGH);
     delayMicroseconds(stepDelayMicros / 2);
     digitalWrite(STEP_PIN, LOW);
     delayMicroseconds(stepDelayMicros / 2);
+    motorPosition += dir;
   }
+  currentSpeedRPS = 0;
   decelTime = micros();
   
   // Calculate actual times
@@ -235,6 +293,7 @@ void executeTrapezoidal(int accelSteps, int cruiseSteps, int decelSteps, float m
 }
 
 void executeTriangular(int totalSteps, float peakSpeed, float accel, float t_ramp) {
+  int8_t dir = (digitalRead(DIR_PIN) == LOW) ? 1 : -1;
   int halfSteps = totalSteps / 2;
   unsigned long stepDelayMicros;
   float currentSpeed;
@@ -249,10 +308,12 @@ void executeTriangular(int totalSteps, float peakSpeed, float accel, float t_ram
     if (currentSpeed < 1.0) currentSpeed = 1.0;
     stepDelayMicros = (unsigned long)(1000000.0 / currentSpeed);
     
+    currentSpeedRPS = currentSpeed / STEPS_PER_REV;
     digitalWrite(STEP_PIN, HIGH);
     delayMicroseconds(stepDelayMicros / 2);
     digitalWrite(STEP_PIN, LOW);
     delayMicroseconds(stepDelayMicros / 2);
+    motorPosition += dir;
   }
   accelTime = micros();
   
@@ -265,12 +326,15 @@ void executeTriangular(int totalSteps, float peakSpeed, float accel, float t_ram
     currentSpeed = accel * t;
     if (currentSpeed < 1.0) currentSpeed = 1.0;
     stepDelayMicros = (unsigned long)(1000000.0 / currentSpeed);
+    currentSpeedRPS = currentSpeed / STEPS_PER_REV;
     
     digitalWrite(STEP_PIN, HIGH);
     delayMicroseconds(stepDelayMicros / 2);
     digitalWrite(STEP_PIN, LOW);
     delayMicroseconds(stepDelayMicros / 2);
+    motorPosition += dir;
   }
+  currentSpeedRPS = 0;
   decelTime = micros();
   
   // Calculate actual times
@@ -316,6 +380,7 @@ void homeAxis(float slowRPS) {
   Serial.println("--- Homing ---");
   if (digitalRead(SENSOR_PIN_2) == LOW) {
     Serial.println("Already at home.");
+    motorPosition = 0;
     return;
   }
   digitalWrite(DIR_PIN, HIGH); // negative direction = toward home
@@ -325,14 +390,18 @@ void homeAxis(float slowRPS) {
     delayMicroseconds(stepDelay);
     digitalWrite(STEP_PIN, LOW);
     delayMicroseconds(stepDelay);
+    motorPosition--;
   }
-  Serial.println("Home found.");
+  motorPosition = 0;
+  Serial.println("Home found. Position = 0.");
 }
 
 void findEnd(float slowRPS) {
   Serial.println("--- Finding End ---");
   if (digitalRead(SENSOR_PIN_1) == LOW) {
     Serial.println("Already at end.");
+    endPosition = motorPosition;
+    axisLength   = endPosition;
     return;
   }
   digitalWrite(DIR_PIN, LOW); // positive direction = toward end
@@ -342,8 +411,46 @@ void findEnd(float slowRPS) {
     delayMicroseconds(stepDelay);
     digitalWrite(STEP_PIN, LOW);
     delayMicroseconds(stepDelay);
+    motorPosition++;
   }
-  Serial.println("End found.");
+  endPosition = motorPosition;
+  axisLength  = endPosition;
+  Serial.print("End found. endPosition="); Serial.print(endPosition);
+  Serial.print(" steps, axisLength="); Serial.print(axisLength);
+  Serial.println(" steps");
+}
+
+void calibrateAxis(float slowRPS) {
+  homeAxis(slowRPS);
+  findEnd(slowRPS);
+  Serial.println("--- Calibration Complete ---");
+  Serial.print("Axis length: "); Serial.print(axisLength);
+  Serial.print(" steps ("); Serial.print((float)axisLength / STEPS_PER_REV, 3);
+  Serial.println(" revs)");
+}
+
+void moveToHome(float cruiseRPS) {
+  float totalRevs = (float)motorPosition / STEPS_PER_REV;
+  if (abs(totalRevs) < 0.01) {
+    Serial.println("Already at home.");
+    return;
+  }
+  float rampRevs  = min(2.0f, abs(totalRevs) / 3.0f);
+  float cruiseRevs = abs(totalRevs) - 2.0 * rampRevs;
+  Serial.println("--- Move To Home ---");
+  profileMove(-rampRevs, -cruiseRevs, -rampRevs, cruiseRPS);
+}
+
+void moveToEnd(float cruiseRPS) {
+  float totalRevs = (float)(endPosition - motorPosition) / STEPS_PER_REV;
+  if (abs(totalRevs) < 0.01) {
+    Serial.println("Already at end.");
+    return;
+  }
+  float rampRevs  = min(2.0f, abs(totalRevs) / 3.0f);
+  float cruiseRevs = abs(totalRevs) - 2.0 * rampRevs;
+  Serial.println("--- Move To End ---");
+  profileMove(rampRevs, cruiseRevs, rampRevs, cruiseRPS);
 }
 
 void rotate(float revolutions, float rps) {

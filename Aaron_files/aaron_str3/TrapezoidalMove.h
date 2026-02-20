@@ -5,6 +5,7 @@
 #define TRAPEZOIDAL_MOVE_H
 
 #include <Arduino.h>
+#include <LiquidCrystal.h>
 
 // Pin definitions
 extern const int DIR_PIN;
@@ -12,6 +13,18 @@ extern const int STEP_PIN;
 extern const int STEPS_PER_REV;
 extern const int SENSOR_PIN_1;
 extern const int SENSOR_PIN_2;
+
+// Position tracking (in steps; 0 = home)
+extern long motorPosition;
+extern long endPosition;
+extern long axisLength;
+extern float currentSpeedRPS;
+
+// LCD object (defined in .ino)
+extern LiquidCrystal lcd;
+
+// Update LCD with current position and velocity (rate-limited to ~10 Hz)
+void updateLCD();
 
 // Trapezoidal move defined by total time and max RPS
 void trapezoidalMove(float revolutions, float maxRPS, float totalTime);
@@ -33,13 +46,18 @@ void executeTriangular(int totalSteps, float peakSpeed,
 // Returns true if any limit switch is triggered (active LOW)
 bool limitTriggered();
 
-// Creep toward home (SENSOR_PIN_2) until triggered, then stop
-// Assumes negative direction (DIR_PIN HIGH) moves toward home
+// Creep toward home (SENSOR_PIN_2) until triggered; sets motorPosition = 0
 void homeAxis(float slowRPS);
 
-// Creep toward end (SENSOR_PIN_1) until triggered, then stop
-// Assumes positive direction (DIR_PIN LOW) moves toward end
+// Creep toward end (SENSOR_PIN_1) until triggered; sets endPosition and axisLength
 void findEnd(float slowRPS);
+
+// Home then find end; reports axis length
+void calibrateAxis(float slowRPS);
+
+// Trapezoidal move to home (position 0) or end position
+void moveToHome(float cruiseRPS);
+void moveToEnd(float cruiseRPS);
 
 // Simple constant velocity rotation (not currently used)
 void rotate(float revolutions, float rps);
