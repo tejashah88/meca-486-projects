@@ -10,9 +10,9 @@ const int SENSOR_PIN_1 = 2;//End
 const int SENSOR_PIN_2 = 3;//Home
 
 void setup() {
-  pinMode(SENSOR_PIN_1, INPUT);
-  pinMode(SENSOR_PIN_2, INPUT);
-  Serial.begin(9600);
+  pinMode(SENSOR_PIN_1, INPUT_PULLUP);
+  pinMode(SENSOR_PIN_2, INPUT_PULLUP);
+  Serial.begin(115200);
   Serial.println("E2S-W24 proximity sensor demo");
 }
 
