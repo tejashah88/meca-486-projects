@@ -6,11 +6,11 @@
 // Usage — linear stage (with limit switches):
 //   LiquidCrystal lcd(7, 8, 4, 5, 6, 11);
 //   MotorConfig motor;
-//   motorInit(&motor, 1, true, 9, 10, 22, 200, &lcd, 2, 3);
+//   motorInit(&motor, 1, true, 9, 10, 200, &lcd, 2, 3);
 //
 // Usage — rotating load (no limits):
 //   MotorConfig motor;
-//   motorInit(&motor, 2, false, 9, 10, 22, 200, &lcd);
+//   motorInit(&motor, 2, false, 9, 10, 200, &lcd);
 
 #ifndef TRAPEZOIDAL_MOVE_H
 #define TRAPEZOIDAL_MOVE_H
@@ -22,11 +22,11 @@
 struct MotorConfig {
   uint8_t id;           // user-assigned motor ID (printed in Serial output)
   bool    hasLimits;    // true = limit switches present; false = free-spinning load
+  bool    invertDir;    // true = invert direction pin (swap CW/CCW due to motor wiring)
 
   // Pins
   int dirPin;
   int stepPin;
-  int buttonPin;
   int limitEndPin;      // end limit switch  (SENSOR_PIN_1) — ignored when hasLimits = false
   int limitHomePin;     // home limit switch (SENSOR_PIN_2) — ignored when hasLimits = false
   int stepsPerRev;
@@ -49,8 +49,8 @@ void motorInit(MotorConfig* m,
                bool           hasLimits,
                int            dirPin,
                int            stepPin,
-               int            buttonPin,
                int            stepsPerRev,
+               bool           invertDir    = false,
                LiquidCrystal* lcd         = nullptr,
                int            limitEndPin  = -1,
                int            limitHomePin = -1);

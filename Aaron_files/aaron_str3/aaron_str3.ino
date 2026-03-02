@@ -4,12 +4,14 @@
 
 #include "TrapezoidalMove.h"
 
+const int BUTTON_PIN = 22;
+
 LiquidCrystal lcd(7, 8, 4, 5, 6, 11);
 MotorConfig motor;//linear stage
 MotorConfig motor2;//zaxis
 void setup() {
   Serial.begin(115200);
- 
+  pinMode(BUTTON_PIN, INPUT_PULLUP);
 
   lcd.begin(16, 2);
   lcd.clear();
@@ -17,27 +19,28 @@ void setup() {
   lcd.setCursor(0, 1);
   lcd.print("Calibrating...");
 
-  // motorInit(config, id, hasLimits, dirPin, stepPin, buttonPin,
-  //           stepsPerRev, lcd, limitEndPin, limitHomePin)
-  motorInit(&motor, 1, true, 9, 10, 22, 200, &lcd, 2, 3);
-  motorInit(&motor2, 2, false, 24, 25, 26, 3200, &lcd); // dont need to declare limit pins when not using switches
-  homeAxis(&motor, 0.5);
- 
-  moveToHome(&motor, 15);
+  // motorInit(config, id, hasLimits, dirPin, stepPin,
+  //           stepsPerRev, invertDir, lcd, limitEndPin, limitHomePin)
+  motorInit(&motor, 1, true, 25, 23, 200, false, &lcd, 2, 3);
+  //motorInit(&motor2, 2, false, 24, 25, 3200, false, &lcd);
+  homeAxis(&motor, 1);
+  //calibrateAxis(&motor, 0.5);
+  //moveToHome(&motor, 5);
+  //moveToHome(&motor, 10);
 }
 
 void loop() {
   updateLCD(&motor);
 
   // Wait for button release, then press, then release
-  while (digitalRead(motor.buttonPin) == LOW)  { delay(10); updateLCD(&motor); }
-  while (digitalRead(motor.buttonPin) == HIGH) { delay(10); updateLCD(&motor); }
-  while (digitalRead(motor.buttonPin) == LOW)  { delay(10); }
+  while (digitalRead(BUTTON_PIN) == LOW)  { delay(10); updateLCD(&motor); }
+  while (digitalRead(BUTTON_PIN) == HIGH) { delay(10); updateLCD(&motor); }
+  while (digitalRead(BUTTON_PIN) == LOW)  { delay(10); }
   delay(50);
-
-  profileMove(&motor2,  2.0,  40.0,  2.0, 15);
-  profileMove(&motor2, -2.0, -10.0, -2.0, 15);
-  profileMove(&motor2,  2.0,  50.0,  2.0, 10);
-  profileMove(&motor2, -10.0,  0.0, -20.0, 10);
-  //moveToHome(&motor, 15);
+  //trapezoidalMove(&motor, 10, 5, 10);  distance, max speed, total time
+  profileMove(&motor,  4.0,  30.0,  4.0, 15); //revs for accel, cruise, decel, speed in RPS
+  profileMove(&motor, -4.0, -30.0, -4.0, 5);
+  profileMove(&motor,  2.0,  50.0,  2.0, 5);
+  profileMove(&motor, -10.0,  0.0, -20.0, 5);
+  moveToHome(&motor, 10);//rps
 }

@@ -10,16 +10,16 @@ void motorInit(MotorConfig* m,
                bool           hasLimits,
                int            dirPin,
                int            stepPin,
-               int            buttonPin,
                int            stepsPerRev,
+               bool           invertDir,
                LiquidCrystal* lcd,
                int            limitEndPin,
                int            limitHomePin) {
   m->id           = id;
   m->hasLimits    = hasLimits;
+  m->invertDir    = invertDir;
   m->dirPin       = dirPin;
   m->stepPin      = stepPin;
-  m->buttonPin    = buttonPin;
   m->stepsPerRev  = stepsPerRev;
   m->lcd          = lcd;
   m->limitEndPin    = limitEndPin;
@@ -32,13 +32,19 @@ void motorInit(MotorConfig* m,
 
   pinMode(dirPin,  OUTPUT);
   pinMode(stepPin, OUTPUT);
-  if (buttonPin >= 0) pinMode(buttonPin, INPUT_PULLUP);
 
   if (hasLimits) {
     // INPUT_PULLUP ensures floating "not triggered" NPN output reads reliably HIGH
     if (limitEndPin  >= 0) pinMode(limitEndPin,  INPUT_PULLUP);
     if (limitHomePin >= 0) pinMode(limitHomePin, INPUT_PULLUP);
   }
+}
+
+// ── Direction helper ──────────────────────────────────────────────────────
+// forward = true means positive / toward-end direction in logical space.
+// invertDir flips the physical pin level to match actual wiring.
+static inline void setDir(MotorConfig* m, bool forward) {
+  digitalWrite(m->dirPin, (forward ^ m->invertDir) ? LOW : HIGH);
 }
 
 // ── LCD ───────────────────────────────────────────────────────────────────
@@ -76,7 +82,7 @@ void updateLCD(MotorConfig* m) {
 // Always returns false when hasLimits = false.
 static bool limitTriggered(MotorConfig* m) {
   if (!m->hasLimits) return false;
-  bool movingTowardEnd = (digitalRead(m->dirPin) == LOW);
+  bool movingTowardEnd = (digitalRead(m->dirPin) == LOW) ^ m->invertDir;
   if (movingTowardEnd) return digitalRead(m->limitEndPin)  == LOW;
   else                 return digitalRead(m->limitHomePin) == LOW;
 }
@@ -218,7 +224,7 @@ static void runTrapezoid(MotorConfig* m,
 void profileMove(MotorConfig* m,
                  float accelRevs, float cruiseRevs, float decelRevs,
                  float cruiseRPS) {
-  digitalWrite(m->dirPin, accelRevs > 0 ? LOW : HIGH);
+  setDir(m, accelRevs > 0);
   int8_t dir = (accelRevs > 0) ? 1 : -1;
 
   int aSteps = (int)(abs(accelRevs)  * m->stepsPerRev);
@@ -241,7 +247,7 @@ void profileMove(MotorConfig* m,
 
 void trapezoidalMove(MotorConfig* m, float revolutions, float maxRPS, float totalTime) {
   int totalSteps = abs(revolutions * m->stepsPerRev);
-  digitalWrite(m->dirPin, revolutions > 0 ? LOW : HIGH);
+  setDir(m, revolutions > 0);
   int8_t dir = (revolutions > 0) ? 1 : -1;
 
   float maxSpeed = maxRPS * m->stepsPerRev;
@@ -271,7 +277,7 @@ void rotate(MotorConfig* m, float revolutions, float rps) {
   int8_t dir        = (revolutions > 0) ? 1 : -1;
   unsigned long halfPeriod = (unsigned long)(500000.0 / (rps * m->stepsPerRev));
 
-  digitalWrite(m->dirPin, revolutions > 0 ? LOW : HIGH);
+  setDir(m, revolutions > 0);
   m->speedRPS = rps;
   for (int i = 0; i < total; i++) {
     digitalWrite(m->stepPin, HIGH);
@@ -314,13 +320,13 @@ void homeAxis(MotorConfig* m, float slowRPS) {
   Serial.print("--- Motor "); Serial.print(m->id); Serial.println(" Homing ---");
   if (digitalRead(m->limitHomePin) == LOW) {
     Serial.println("Already on home sensor — backing off until clear.");
-    digitalWrite(m->dirPin, LOW);  // toward end = away from home
+    setDir(m, true);   // toward end = away from home
     creepUntilSensorClear(m, m->limitHomePin, 1, slowRPS);
   } else {
-    digitalWrite(m->dirPin, HIGH);  // toward home
+    setDir(m, false);  // toward home
     creepUntilSensor(m, m->limitHomePin, -1, slowRPS);
     Serial.println("Home sensor detected — backing off until clear.");
-    digitalWrite(m->dirPin, LOW);   // toward end = away from home
+    setDir(m, true);   // toward end = away from home
     creepUntilSensorClear(m, m->limitHomePin, 1, slowRPS);
   }
   m->position = 0;  // define home as "just clear" of the sensor
@@ -338,7 +344,7 @@ void findEnd(MotorConfig* m, float slowRPS) {
     updateLCD(m);
     return;
   }
-  digitalWrite(m->dirPin, LOW);  // LOW = toward end
+  setDir(m, true);  // toward end
   creepUntilSensor(m, m->limitEndPin, 1, slowRPS);
   m->endPos     = m->position;
   m->axisLength = m->endPos;
