@@ -5,26 +5,25 @@
 #include "TrapezoidalMove.h"
 
 LiquidCrystal lcd(7, 8, 4, 5, 6, 11);
-MotorConfig motor;
-MotorConfig motor2;
+MotorConfig motor;//linear stage
+MotorConfig motor2;//zaxis
 void setup() {
   Serial.begin(115200);
-  Serial.println("STR3 Stepper Ready");
+ 
 
   lcd.begin(16, 2);
   lcd.clear();
-  lcd.print("STR3 Stepper");
+  lcd.print("X-Axis");
   lcd.setCursor(0, 1);
   lcd.print("Calibrating...");
 
   // motorInit(config, id, hasLimits, dirPin, stepPin, buttonPin,
   //           stepsPerRev, lcd, limitEndPin, limitHomePin)
-  //motorInit(&motor, 1, true, 9, 10, 22, 200, &lcd, 2, 3);
-  motor.limitStopRevs = 1.0;
-  motorInit(&motor2, 2, false, 9, 10, 22, 3200, &lcd);
-  //homeAxis(&motor, 0.5);
-  //calibrateAxis(&motor, 0.5);
-  //moveToHome(&motor, 15);
+  motorInit(&motor, 1, true, 9, 10, 22, 200, &lcd, 2, 3);
+  motorInit(&motor2, 2, false, 24, 25, 26, 3200, &lcd); // dont need to declare limit pins when not using switches
+  homeAxis(&motor, 0.5);
+ 
+  moveToHome(&motor, 15);
 }
 
 void loop() {
