@@ -451,48 +451,16 @@ allowing the motor to always reverse away from a limit.
 
 ### 3.14 Stall Testing Results
 
-> See [`stall_test/STALL_TEST_RESULTS.md`](stall_test/STALL_TEST_RESULTS.md) for full data.
+> See `[stall_test/STALL_TEST_RESULTS.md](stall_test/STALL_TEST_RESULTS.md)` for full data.
+
 
 | Condition                       | Stall Threshold (rev/s²) | Safe Limit @ 75% (rev/s²) |
 | ------------------------------- | ------------------------ | ------------------------- |
 | Unloaded, 10 RPS, KR33 carriage | 454.5 – 500              | 341                       |
 | Loaded                          |                          |                           |
 
+
 **Design rule (unloaded):** minimum ramp (rev) = v² / 682, where v is cruise speed in RPS.
-
----
-
-### 3.15 `profileMove` Discovered Limitations
-
-The following limitations were identified through stall testing and resonance testing of the trapezoidal motion profiler:
-
-**1. Acceleration limit (stall testing)**
-- Stall occurs between 454.5 and 500 rev/s² at 10 RPS (unloaded, full step, KR33 carriage)
-- Safe working acceleration: ≤ 341 rev/s² (75% margin)
-- Minimum safe ramp distance: `ramp (rev) = v² / 682`
-- All tested `profileMove` calls use ramps of ≥ 2 rev at ≤ 15 RPS (~56 rev/s²) — well within the safe zone
-
-**2. Speed limit (resonance & torque-speed curve)**
-- At full step (200 steps/rev), the motor stalls when `rotate()` attempts 10 RPS with no ramp
-- `profileMove` successfully ran at 10 RPS with a ramp, indicating 10 RPS is near the practical ceiling at this bus voltage and current
-- Operating above ~8–9 RPS leaves little torque margin for disturbances or loads
-
-**3. Resonance zone (resonance testing)**
-- Sharp mechanical resonance at 0.90–1.25 RPS (180–250 Hz step rate) at full step
-- Vibration at resonance was dramatically worse than all other speeds
-- `profileMove` ramps through this zone quickly rather than dwelling in it — this is the correct behavior
-- Sustained constant-velocity operation in this range must be avoided
-
-**4. No position feedback**
-- `profileMove` is open-loop — missed steps from resonance or overload silently corrupt `motorPosition`
-- `homeAxis()` must be called after any suspected stall to resync position from the physical limit switch
-
-**5. Arduino pulse rate ceiling**
-- Step pulses are generated with `delayMicroseconds()`, which is unreliable below ~5 µs half-period
-- Maximum reliable step rate: ~100 kHz → maximum RPS = 100,000 / STEPS_PER_REV
-- At full step: 500 RPS limit (not a practical concern)
-- At 1/8 step (1600 steps/rev): 62.5 RPS limit
-- At 1/128 step (25600 steps/rev): 3.9 RPS limit — becomes a real constraint at high microstepping
 
 ---
 
