@@ -56,6 +56,7 @@ void setup() {
   //           stepsPerRev, invertDir, lcd, limitEndPin, limitHomePin)
   motorInit(&motor, 1, true, 51, 53, 200, true, &lcd, 2, 3);
   //motorInit(&motor2, 2, false, 24, 25, 3200, false, &lcd);
+  attachLimitInterrupts(&motor);
   homeAxis(&motor, 1);
   //calibrateAxis(&motor, 0.5);
   //moveToHome(&motor, 5);

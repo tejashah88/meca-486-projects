@@ -26,9 +26,11 @@ void motorInit(MotorConfig* m,
   m->limitHomePin   = limitHomePin;
   m->limitStopRevs  = 2.0f;  // max soft-stop distance (revs); actual = min(required by speed, this). 0 = instant stop
   m->position       = 0;
-  m->endPos       = 0;
-  m->axisLength   = 0;
-  m->speedRPS     = 0.0;
+  m->endPos         = 0;
+  m->axisLength     = 0;
+  m->speedRPS       = 0.0;
+  m->limitEndFlag   = false;
+  m->limitHomeFlag  = false;
 
   pinMode(dirPin,  OUTPUT);
   pinMode(stepPin, OUTPUT);
@@ -76,35 +78,71 @@ void updateLCD(MotorConfig* m) {
   }
 }
 
+// ── Interrupt-driven limit switch ISRs ────────────────────────────────────
+
+#define MAX_LIMIT_MOTORS 4
+static MotorConfig* _endMotors[MAX_LIMIT_MOTORS]  = {nullptr, nullptr, nullptr, nullptr};
+static MotorConfig* _homeMotors[MAX_LIMIT_MOTORS] = {nullptr, nullptr, nullptr, nullptr};
+
+static void endISR0()  { _endMotors[0]->limitEndFlag   = true; }
+static void homeISR0() { _homeMotors[0]->limitHomeFlag  = true; }
+static void endISR1()  { _endMotors[1]->limitEndFlag   = true; }
+static void homeISR1() { _homeMotors[1]->limitHomeFlag  = true; }
+static void endISR2()  { _endMotors[2]->limitEndFlag   = true; }
+static void homeISR2() { _homeMotors[2]->limitHomeFlag  = true; }
+static void endISR3()  { _endMotors[3]->limitEndFlag   = true; }
+static void homeISR3() { _homeMotors[3]->limitHomeFlag  = true; }
+
+typedef void (*IsrFunc)();
+static const IsrFunc endISRs[]  = {endISR0,  endISR1,  endISR2,  endISR3};
+static const IsrFunc homeISRs[] = {homeISR0, homeISR1, homeISR2, homeISR3};
+
+void attachLimitInterrupts(MotorConfig* m) {
+  if (!m->hasLimits) { Serial.println("attachLimitInterrupts: no limits configured."); return; }
+
+  int slot = -1;
+  for (int i = 0; i < MAX_LIMIT_MOTORS; i++) {
+    if (_endMotors[i] == nullptr) { slot = i; break; }
+  }
+  if (slot < 0) { Serial.println("attachLimitInterrupts: no free ISR slots."); return; }
+
+  _endMotors[slot]  = m;
+  _homeMotors[slot] = m;
+
+  if (m->limitEndPin  >= 0) attachInterrupt(digitalPinToInterrupt(m->limitEndPin),  endISRs[slot],  FALLING);
+  if (m->limitHomePin >= 0) attachInterrupt(digitalPinToInterrupt(m->limitHomePin), homeISRs[slot], FALLING);
+
+  m->limitEndFlag  = false;
+  m->limitHomeFlag = false;
+  Serial.print("Limit ISRs attached for motor "); Serial.print(m->id);
+  Serial.print(" (slot "); Serial.print(slot); Serial.println(")");
+}
+
 // ── Limit checking ────────────────────────────────────────────────────────
 
 // Direction-aware: only blocks movement toward the triggered limit.
+// Uses ISR-set flags instead of polling digitalRead each step.
 // Always returns false when hasLimits = false.
 static bool limitTriggered(MotorConfig* m) {
   if (!m->hasLimits) return false;
   bool movingTowardEnd = (digitalRead(m->dirPin) == LOW) ^ m->invertDir;
-  if (movingTowardEnd) return digitalRead(m->limitEndPin)  == LOW;
-  else                 return digitalRead(m->limitHomePin) == LOW;
+  if (movingTowardEnd) return m->limitEndFlag;
+  else                 return m->limitHomeFlag;
 }
 
-// Decelerate from current speed to zero when limit hit. Uses move's decel rate to compute
-// minimum distance; caps at limitStopRevs so we never exceed max soft-stop distance.
-static void runLimitDecel(MotorConfig* m, float currentSpeedStepsPerSec, int8_t dir,
-                          float decelRateStepsPerSecSq) {
-  if (m->limitStopRevs <= 0) return;
+// Decelerate from current speed to zero over exactly limitStopRevs revolutions.
+// Decel rate is back-calculated from v and distance: a = v²/(2d).
+// limitStopRevs = 0 → instant stop (no steps).
+static void runLimitDecel(MotorConfig* m, float currentSpeedStepsPerSec, int8_t dir) {
+  int stopSteps = (int)(m->limitStopRevs * m->stepsPerRev);
+  if (stopSteps < 1) return;
   if (currentSpeedStepsPerSec < 1.0f) currentSpeedStepsPerSec = 1.0f;
-  int maxStopSteps = (int)(m->limitStopRevs * m->stepsPerRev);
-  if (maxStopSteps < 1) return;
-  // v² = 2*a*d → d = v²/(2*a). Use move's decel rate so we know the motor can do it.
-  int requiredSteps = (int)((currentSpeedStepsPerSec * currentSpeedStepsPerSec) / (2.0f * decelRateStepsPerSecSq));
-  int stopSteps = requiredSteps;
-  if (stopSteps > maxStopSteps) stopSteps = maxStopSteps;
-  if (stopSteps < 1) stopSteps = 1;
+  // a = v²/(2d) — whatever rate is needed to stop in exactly stopSteps
   float decelRate = (currentSpeedStepsPerSec * currentSpeedStepsPerSec) / (2.0f * stopSteps);
   for (int j = 0; j < stopSteps; j++) {
-    float speed = sqrt(2.0 * decelRate * (stopSteps - j));
+    float speed = sqrt(2.0f * decelRate * (stopSteps - j));
     if (speed < 1.0f) speed = 1.0f;
-    unsigned long stepDelay = (unsigned long)(1000000.0 / speed);
+    unsigned long stepDelay = (unsigned long)(1000000.0f / speed);
     m->speedRPS = speed / m->stepsPerRev;
     digitalWrite(m->stepPin, HIGH);
     delayMicroseconds(stepDelay / 2);
@@ -127,18 +165,25 @@ static void runTrapezoid(MotorConfig* m,
   float speed;
   unsigned long startTime, accelEnd, cruiseEnd, decelEnd;
 
+  // Pre-seed the flag for the limit we're moving toward in case the switch
+  // is already held LOW (no FALLING edge will fire, so the ISR won't set it).
+  if (m->hasLimits) {
+    if (dir > 0) m->limitEndFlag  = (m->limitEndPin  >= 0 && digitalRead(m->limitEndPin)  == LOW);
+    else         m->limitHomeFlag = (m->limitHomePin >= 0 && digitalRead(m->limitHomePin) == LOW);
+  }
+
   // ── Accel ──
   startTime = micros();
   for (int i = 0; i < accelSteps; i++) {
     speed = sqrt(2.0 * accelRate * i);
     if (speed < 1.0) speed = 1.0;
-    if (limitTriggered(m)) {
-      Serial.println("Limit hit during accel — decelling to stop.");
-      runLimitDecel(m, speed, dir, accelRate);
-      break;
-    }
     stepDelay = (unsigned long)(1000000.0 / speed);
     m->speedRPS = speed / m->stepsPerRev;
+    if (limitTriggered(m)) {
+      Serial.println("Limit hit during accel — decelling to stop.");
+      runLimitDecel(m, speed, dir);
+      break;
+    }
     digitalWrite(m->stepPin, HIGH);
     delayMicroseconds(stepDelay / 2);
     digitalWrite(m->stepPin, LOW);
@@ -154,7 +199,7 @@ static void runTrapezoid(MotorConfig* m,
     for (int i = 0; i < cruiseSteps; i++) {
       if (limitTriggered(m)) {
         Serial.println("Limit hit during cruise — decelling to stop.");
-        runLimitDecel(m, cruiseSpeed, dir, decelRate);
+        runLimitDecel(m, cruiseSpeed, dir);
         break;
       }
       digitalWrite(m->stepPin, HIGH);
@@ -170,13 +215,13 @@ static void runTrapezoid(MotorConfig* m,
   for (int i = 0; i < decelSteps; i++) {
     speed = sqrt(2.0 * decelRate * (decelSteps - i));
     if (speed < 1.0) speed = 1.0;
-    if (limitTriggered(m)) {
-      Serial.println("Limit hit during decel — decelling to stop.");
-      runLimitDecel(m, speed, dir, decelRate);
-      break;
-    }
     stepDelay = (unsigned long)(1000000.0 / speed);
     m->speedRPS = speed / m->stepsPerRev;
+    if (limitTriggered(m)) {
+      Serial.println("Limit hit during decel — decelling to stop.");
+      runLimitDecel(m, speed, dir);
+      break;
+    }
     digitalWrite(m->stepPin, HIGH);
     delayMicroseconds(stepDelay / 2);
     digitalWrite(m->stepPin, LOW);

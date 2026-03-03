@@ -38,6 +38,10 @@ struct MotorConfig {
   long axisLength;      // total axis travel in steps    (hasLimits only)
   float speedRPS;       // current speed in RPS (updated during moves)
 
+  // Interrupt-driven limit flags — set by ISR on FALLING edge, cleared before each move
+  volatile bool limitEndFlag;
+  volatile bool limitHomeFlag;
+
   LiquidCrystal* lcd;   // pointer to LCD instance; pass nullptr for no LCD
 };
 
@@ -71,6 +75,11 @@ void trapezoidalMove(MotorConfig* m,
 
 // Constant velocity — no ramp. Use for resonance testing.
 void rotate(MotorConfig* m, float revolutions, float rps);
+
+// ── Interrupt setup (hasLimits = true only) ───────────────────────────────
+// Call once after motorInit. Attaches FALLING-edge ISRs to both limit pins.
+// Pins must be interrupt-capable (e.g. 2, 3, 18-21 on Mega).
+void attachLimitInterrupts(MotorConfig* m);
 
 // ── Homing & calibration (hasLimits = true only) ─────────────────────────
 void homeAxis(MotorConfig* m, float slowRPS);
