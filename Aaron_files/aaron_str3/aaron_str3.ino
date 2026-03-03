@@ -30,8 +30,8 @@ void setup() {
   attachTachInterrupt(&motor);
 
   //homeAxis(&motor, 1);
-  calibrateAxis(&motor, 1);
-  moveToHome(&motor, 3);
+  calibrateAxis(&motor, 1.5);
+  moveToHome(&motor, 5);
   //moveToHome(&motor, 10);
 }
 
@@ -45,9 +45,10 @@ void loop() {
   delay(50);
 
   // tach is reset and reported automatically inside profileMove/moveToHome
-  profileMove(&motor,  4.0,  30.0,  4.0, 3); // revs for accel, cruise, decel; speed in RPS
-  profileMove(&motor, -4.0, -30.0, -4.0, 3);
+  profileMove(&motor,  4.0,  30.0,  4.0, 5); // revs for accel, cruise, decel; speed in RPS
+  profileMove(&motor, -4.0, -30.0, -4.0, 7);
   profileMove(&motor,  2.0,  50.0,  2.0, 3);
-  profileMove(&motor, -10.0,  0.0, -20.0, 3);
-  moveToHome(&motor, 3); // rps
+  profileMove(&motor, -10.0,  0.0, -20.0, 10);
+  moveToHome(&motor, 15); // rps
 }
+  //trapezoidalMove(&motor, 10, 5, 10);  distance, max speed, total time
