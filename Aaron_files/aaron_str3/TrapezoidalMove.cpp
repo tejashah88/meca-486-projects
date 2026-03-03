@@ -17,7 +17,8 @@ void motorInit(MotorConfig* m,
                int            limitHomePin,
                float          mmPerRev,
                int            tachPin,
-               uint8_t        tachPulsesPerRev) {
+               uint8_t        tachPulsesPerRev,
+               float          maxRPS) {
   m->id           = id;
   m->hasLimits    = hasLimits;
   m->invertDir    = invertDir;
@@ -31,7 +32,8 @@ void motorInit(MotorConfig* m,
   m->tachPin           = tachPin;
   m->tachPulsesPerRev  = tachPulsesPerRev;
   m->tachCount         = 0;
-  m->limitStopRevs  = 2.0f;  // max soft-stop distance (revs); actual = min(required by speed, this). 0 = instant stop
+  m->maxRPS            = maxRPS;
+  m->limitStopRevs     = 2.0f;  // max stop distance at maxRPS; lower speeds stop proportionally shorter
   m->position       = 0;
   m->endPos         = 0;
   m->axisLength     = 0;
@@ -191,15 +193,26 @@ static bool limitTriggered(MotorConfig* m) {
   else                 return m->limitHomeFlag;
 }
 
-// Decelerate from current speed to zero over exactly limitStopRevs revolutions.
-// Decel rate is back-calculated from v and distance: a = v²/(2d).
-// limitStopRevs = 0 → instant stop (no steps).
+// Fixed decel rate: a = (maxRPS * stepsPerRev)² / (2 * limitStopRevs * stepsPerRev)
+// This is the rate that stops the motor from maxRPS in exactly limitStopRevs revolutions.
+// At the current (lower) speed, stop distance = v²/(2a) ≤ limitStopRevs revs.
+// limitStopRevs = 0 or maxRPS = 0 → instant stop.
 static void runLimitDecel(MotorConfig* m, float currentSpeedStepsPerSec, int8_t dir) {
-  int stopSteps = (int)(m->limitStopRevs * m->stepsPerRev);
-  if (stopSteps < 1) return;
+  if (m->limitStopRevs <= 0.0f || m->maxRPS <= 0.0f) return;
   if (currentSpeedStepsPerSec < 1.0f) currentSpeedStepsPerSec = 1.0f;
-  // a = v²/(2d) — whatever rate is needed to stop in exactly stopSteps
-  float decelRate = (currentSpeedStepsPerSec * currentSpeedStepsPerSec) / (2.0f * stopSteps);
+
+  float maxSpeedSteps = m->maxRPS * m->stepsPerRev;
+  int   maxStopSteps  = (int)(m->limitStopRevs * m->stepsPerRev);
+  // Fixed decel rate based on max conditions: a = vmax² / (2 * dmax)
+  float decelRate = (maxSpeedSteps * maxSpeedSteps) / (2.0f * maxStopSteps);
+  // Actual stop steps at current speed: d = v² / (2a)
+  int stopSteps = (int)(currentSpeedStepsPerSec * currentSpeedStepsPerSec / (2.0f * decelRate));
+  if (stopSteps < 1) return;
+
+  Serial.print("Limit decel: "); Serial.print(stopSteps);
+  Serial.print(" steps ("); Serial.print((float)stopSteps / m->stepsPerRev, 3);
+  Serial.println(" revs)");
+
   for (int j = 0; j < stopSteps; j++) {
     float speed = sqrt(2.0f * decelRate * (stopSteps - j));
     if (speed < 1.0f) speed = 1.0f;

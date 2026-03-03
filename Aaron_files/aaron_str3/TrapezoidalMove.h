@@ -31,7 +31,8 @@ struct MotorConfig {
   int limitHomePin;     // home limit switch (SENSOR_PIN_2) — ignored when hasLimits = false
   int stepsPerRev;
   float mmPerRev;       // lead screw pitch in mm/rev (e.g. 10.0 for 10mm pitch). 0 = unknown, skips mm output.
-  float limitStopRevs;  // max revs for soft stop when limit hit (e.g. 2.0). 0 = stop immediately. Actual distance = min(required from speed, this cap).
+  float limitStopRevs;  // max stop distance in revs at maxRPS. At lower speeds, stop distance scales as v²/vmax² * limitStopRevs.
+  float maxRPS;         // maximum operating speed (RPS). Used to compute the fixed limit decel rate.
 
   // State
   long position;        // current position in steps (0 = home or startup)
@@ -66,7 +67,8 @@ void motorInit(MotorConfig* m,
                int            limitHomePin      = -1,
                float          mmPerRev          = 0.0f,
                int            tachPin           = -1,
-               uint8_t        tachPulsesPerRev  = 100);
+               uint8_t        tachPulsesPerRev  = 100,
+               float          maxRPS            = 0.0f);
 
 // ── LCD ───────────────────────────────────────────────────────────────────
 void updateLCD(MotorConfig* m);
