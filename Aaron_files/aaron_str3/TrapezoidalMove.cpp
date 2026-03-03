@@ -14,7 +14,10 @@ void motorInit(MotorConfig* m,
                bool           invertDir,
                LiquidCrystal* lcd,
                int            limitEndPin,
-               int            limitHomePin) {
+               int            limitHomePin,
+               float          mmPerRev,
+               int            tachPin,
+               uint8_t        tachPulsesPerRev) {
   m->id           = id;
   m->hasLimits    = hasLimits;
   m->invertDir    = invertDir;
@@ -22,8 +25,12 @@ void motorInit(MotorConfig* m,
   m->stepPin      = stepPin;
   m->stepsPerRev  = stepsPerRev;
   m->lcd          = lcd;
-  m->limitEndPin    = limitEndPin;
-  m->limitHomePin   = limitHomePin;
+  m->limitEndPin       = limitEndPin;
+  m->limitHomePin      = limitHomePin;
+  m->mmPerRev          = mmPerRev;
+  m->tachPin           = tachPin;
+  m->tachPulsesPerRev  = tachPulsesPerRev;
+  m->tachCount         = 0;
   m->limitStopRevs  = 2.0f;  // max soft-stop distance (revs); actual = min(required by speed, this). 0 = instant stop
   m->position       = 0;
   m->endPos         = 0;
@@ -118,6 +125,60 @@ void attachLimitInterrupts(MotorConfig* m) {
   Serial.print(" (slot "); Serial.print(slot); Serial.println(")");
 }
 
+// ── Tachometer ISRs ───────────────────────────────────────────────────────
+
+static MotorConfig* _tachMotors[MAX_LIMIT_MOTORS] = {nullptr, nullptr, nullptr, nullptr};
+
+static void tachISR0() { _tachMotors[0]->tachCount++; }
+static void tachISR1() { _tachMotors[1]->tachCount++; }
+static void tachISR2() { _tachMotors[2]->tachCount++; }
+static void tachISR3() { _tachMotors[3]->tachCount++; }
+
+static const IsrFunc tachISRs[] = {tachISR0, tachISR1, tachISR2, tachISR3};
+
+void attachTachInterrupt(MotorConfig* m) {
+  if (m->tachPin < 0) { Serial.println("attachTachInterrupt: no tach pin configured."); return; }
+
+  int slot = -1;
+  for (int i = 0; i < MAX_LIMIT_MOTORS; i++) {
+    if (_tachMotors[i] == nullptr) { slot = i; break; }
+  }
+  if (slot < 0) { Serial.println("attachTachInterrupt: no free ISR slots."); return; }
+
+  _tachMotors[slot] = m;
+  m->tachCount = 0;
+  pinMode(m->tachPin, INPUT_PULLUP);
+  attachInterrupt(digitalPinToInterrupt(m->tachPin), tachISRs[slot], FALLING);
+  Serial.print("Tach ISR attached for motor "); Serial.print(m->id);
+  Serial.print(" (slot "); Serial.print(slot); Serial.println(")");
+}
+
+void resetTach(MotorConfig* m) {
+  noInterrupts();
+  m->tachCount = 0;
+  interrupts();
+}
+
+float getTachRevolutions(MotorConfig* m) {
+  noInterrupts();
+  uint32_t count = m->tachCount;
+  interrupts();
+  return count / (float)m->tachPulsesPerRev;
+}
+
+float getTachRPS(MotorConfig* m, uint16_t sampleMs) {
+  noInterrupts();
+  uint32_t c0 = m->tachCount;
+  interrupts();
+  unsigned long t0 = micros();
+  delay(sampleMs);
+  noInterrupts();
+  uint32_t c1 = m->tachCount;
+  interrupts();
+  float elapsed = (micros() - t0) / 1e6f;
+  return ((c1 - c0) / (float)m->tachPulsesPerRev) / elapsed;
+}
+
 // ── Limit checking ────────────────────────────────────────────────────────
 
 // Direction-aware: only blocks movement toward the triggered limit.
@@ -172,23 +233,27 @@ static void runTrapezoid(MotorConfig* m,
     else         m->limitHomeFlag = (m->limitHomePin >= 0 && digitalRead(m->limitHomePin) == LOW);
   }
 
+  resetTach(m);
+
   // ── Accel ──
   startTime = micros();
   for (int i = 0; i < accelSteps; i++) {
+    // Check limit first — m->speedRPS reflects the last completed step's velocity.
+    if (limitTriggered(m)) {
+      Serial.print("Limit hit during accel at ");
+      Serial.print(m->speedRPS, 3); Serial.println(" RPS — decelling to stop.");
+      runLimitDecel(m, m->speedRPS * m->stepsPerRev, dir);
+      break;
+    }
     speed = sqrt(2.0 * accelRate * i);
     if (speed < 1.0) speed = 1.0;
     stepDelay = (unsigned long)(1000000.0 / speed);
-    m->speedRPS = speed / m->stepsPerRev;
-    if (limitTriggered(m)) {
-      Serial.println("Limit hit during accel — decelling to stop.");
-      runLimitDecel(m, speed, dir);
-      break;
-    }
     digitalWrite(m->stepPin, HIGH);
     delayMicroseconds(stepDelay / 2);
     digitalWrite(m->stepPin, LOW);
     delayMicroseconds(stepDelay / 2);
     m->position += dir;
+    m->speedRPS = speed / m->stepsPerRev;  // updated after step completes
   }
   accelEnd = micros();
 
@@ -198,7 +263,8 @@ static void runTrapezoid(MotorConfig* m,
     m->speedRPS = cruiseSpeed / m->stepsPerRev;
     for (int i = 0; i < cruiseSteps; i++) {
       if (limitTriggered(m)) {
-        Serial.println("Limit hit during cruise — decelling to stop.");
+        Serial.print("Limit hit during cruise at ");
+        Serial.print(m->speedRPS, 3); Serial.println(" RPS — decelling to stop.");
         runLimitDecel(m, cruiseSpeed, dir);
         break;
       }
@@ -213,20 +279,22 @@ static void runTrapezoid(MotorConfig* m,
 
   // ── Decel ──
   for (int i = 0; i < decelSteps; i++) {
+    // Check limit first — m->speedRPS reflects the last completed step's velocity.
+    if (limitTriggered(m)) {
+      Serial.print("Limit hit during decel at ");
+      Serial.print(m->speedRPS, 3); Serial.println(" RPS — decelling to stop.");
+      runLimitDecel(m, m->speedRPS * m->stepsPerRev, dir);
+      break;
+    }
     speed = sqrt(2.0 * decelRate * (decelSteps - i));
     if (speed < 1.0) speed = 1.0;
     stepDelay = (unsigned long)(1000000.0 / speed);
-    m->speedRPS = speed / m->stepsPerRev;
-    if (limitTriggered(m)) {
-      Serial.println("Limit hit during decel — decelling to stop.");
-      runLimitDecel(m, speed, dir);
-      break;
-    }
     digitalWrite(m->stepPin, HIGH);
     delayMicroseconds(stepDelay / 2);
     digitalWrite(m->stepPin, LOW);
     delayMicroseconds(stepDelay / 2);
     m->position += dir;
+    m->speedRPS = speed / m->stepsPerRev;  // updated after step completes
   }
   m->speedRPS = 0;
   decelEnd = micros();
@@ -242,8 +310,14 @@ static void runTrapezoid(MotorConfig* m,
   float tDecelExp  = (decelSteps  > 0) ? cruiseSpeed / decelRate : 0;
   float tTotalExp  = tAccelExp + tCruiseExp + tDecelExp;
 
+  float tachRevs        = getTachRevolutions(m);
+  float commandedRevs   = (float)(accelSteps + cruiseSteps + decelSteps) / m->stepsPerRev;
+  float tachErr         = tachRevs - commandedRevs;
+
   Serial.print("--- Motor "); Serial.print(m->id); Serial.println(" Move Complete ---");
-  Serial.print("Steps: "); Serial.println(accelSteps + cruiseSteps + decelSteps);
+  Serial.print("Commanded: "); Serial.print(commandedRevs, 3); Serial.print(" rev | ");
+  Serial.print("Tach: ");      Serial.print(tachRevs,      3); Serial.print(" rev | ");
+  Serial.print("Error: ");     Serial.print(tachErr,        3); Serial.println(" rev");
   Serial.print("Position: "); Serial.println(m->position);
 
   Serial.print("Accel:  Expected="); Serial.print(tAccelExp, 3);
@@ -401,12 +475,25 @@ void findEnd(MotorConfig* m, float slowRPS) {
 
 void calibrateAxis(MotorConfig* m, float slowRPS) {
   if (!m->hasLimits) { Serial.println("calibrateAxis: no limits configured."); return; }
+  resetTach(m);
   homeAxis(m, slowRPS);
   findEnd(m, slowRPS);
+  float tachRevs = getTachRevolutions(m);
+  float stepRevs = (float)m->axisLength / m->stepsPerRev;
   Serial.print("--- Motor "); Serial.print(m->id); Serial.println(" Calibration Complete ---");
-  Serial.print("Axis length: "); Serial.print(m->axisLength);
-  Serial.print(" steps ("); Serial.print((float)m->axisLength / m->stepsPerRev, 3);
-  Serial.println(" revs)");
+  Serial.print("Axis (steps): "); Serial.print(m->axisLength); Serial.print(" steps | ");
+  Serial.print(stepRevs, 3); Serial.print(" revs");
+  if (m->mmPerRev > 0.0f) {
+    Serial.print(" | "); Serial.print(stepRevs * m->mmPerRev, 2); Serial.print(" mm");
+  }
+  Serial.println();
+  if (m->tachPin >= 0) {
+    Serial.print("Axis (tach):  "); Serial.print(tachRevs, 3); Serial.print(" revs");
+    if (m->mmPerRev > 0.0f) {
+      Serial.print(" | "); Serial.print(tachRevs * m->mmPerRev, 2); Serial.print(" mm");
+    }
+    Serial.println();
+  }
 }
 
 // ── Position-based moves ──────────────────────────────────────────────────

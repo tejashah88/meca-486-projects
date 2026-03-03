@@ -30,6 +30,7 @@ struct MotorConfig {
   int limitEndPin;      // end limit switch  (SENSOR_PIN_1) — ignored when hasLimits = false
   int limitHomePin;     // home limit switch (SENSOR_PIN_2) — ignored when hasLimits = false
   int stepsPerRev;
+  float mmPerRev;       // lead screw pitch in mm/rev (e.g. 10.0 for 10mm pitch). 0 = unknown, skips mm output.
   float limitStopRevs;  // max revs for soft stop when limit hit (e.g. 2.0). 0 = stop immediately. Actual distance = min(required from speed, this cap).
 
   // State
@@ -41,6 +42,11 @@ struct MotorConfig {
   // Interrupt-driven limit flags — set by ISR on FALLING edge, cleared before each move
   volatile bool limitEndFlag;
   volatile bool limitHomeFlag;
+
+  // Tachometer (driver Tach Out signal)
+  int     tachPin;             // interrupt-capable pin (-1 if no tach)
+  uint8_t tachPulsesPerRev;    // pulses per revolution (match driver setting)
+  volatile uint32_t tachCount; // raw pulse count, incremented by ISR
 
   LiquidCrystal* lcd;   // pointer to LCD instance; pass nullptr for no LCD
 };
@@ -54,10 +60,13 @@ void motorInit(MotorConfig* m,
                int            dirPin,
                int            stepPin,
                int            stepsPerRev,
-               bool           invertDir    = false,
-               LiquidCrystal* lcd         = nullptr,
-               int            limitEndPin  = -1,
-               int            limitHomePin = -1);
+               bool           invertDir         = false,
+               LiquidCrystal* lcd              = nullptr,
+               int            limitEndPin       = -1,
+               int            limitHomePin      = -1,
+               float          mmPerRev          = 0.0f,
+               int            tachPin           = -1,
+               uint8_t        tachPulsesPerRev  = 100);
 
 // ── LCD ───────────────────────────────────────────────────────────────────
 void updateLCD(MotorConfig* m);
@@ -76,10 +85,16 @@ void trapezoidalMove(MotorConfig* m,
 // Constant velocity — no ramp. Use for resonance testing.
 void rotate(MotorConfig* m, float revolutions, float rps);
 
-// ── Interrupt setup (hasLimits = true only) ───────────────────────────────
-// Call once after motorInit. Attaches FALLING-edge ISRs to both limit pins.
+// ── Interrupt setup ───────────────────────────────────────────────────────
+// Limit switches — call once after motorInit (hasLimits = true only).
 // Pins must be interrupt-capable (e.g. 2, 3, 18-21 on Mega).
 void attachLimitInterrupts(MotorConfig* m);
+
+// Tachometer — call once after motorInit when tachPin >= 0.
+void attachTachInterrupt(MotorConfig* m);
+void resetTach(MotorConfig* m);
+float getTachRevolutions(MotorConfig* m);               // revs since last resetTach
+float getTachRPS(MotorConfig* m, uint16_t sampleMs = 50); // instantaneous RPS
 
 // ── Homing & calibration (hasLimits = true only) ─────────────────────────
 void homeAxis(MotorConfig* m, float slowRPS);
