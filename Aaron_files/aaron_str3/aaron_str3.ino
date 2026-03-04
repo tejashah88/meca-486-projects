@@ -25,9 +25,9 @@ void setup() {
   motorInit(&motor2, 2, false, 24, 25, 3200, false, &lcd, -1, -1, 0.0f, -1, 100, 5.0f);
 
   attachLimitInterrupts(&motor);
-  while (digitalRead(BUTTON_PIN) == LOW)  { delay(10); updateLCD(&motor); }
-  while (digitalRead(BUTTON_PIN) == HIGH) { delay(10); updateLCD(&motor); }
-  while (digitalRead(BUTTON_PIN) == LOW)  { delay(10); }
+  while (digitalRead(BUTTON_PIN) == HIGH)  { delay(10); updateLCD(&motor); }
+  while (digitalRead(BUTTON_PIN) == LOW) { delay(10); updateLCD(&motor); }
+  while (digitalRead(BUTTON_PIN) == HIGH)  { delay(10); }
   delay(50);
   //homeAxis(&motor, 1);
   lcd.begin(16, 2);
@@ -46,9 +46,9 @@ void loop() {
   updateLCD(&motor);
 
   // Wait for button release, then press, then release
-  while (digitalRead(BUTTON_PIN) == LOW)  { delay(10); updateLCD(&motor); }
-  while (digitalRead(BUTTON_PIN) == HIGH) { delay(10); updateLCD(&motor); }
-  while (digitalRead(BUTTON_PIN) == LOW)  { delay(10); }
+  while (digitalRead(BUTTON_PIN) == HIGH)  { delay(10); updateLCD(&motor); }
+  while (digitalRead(BUTTON_PIN) == LOW) { delay(10); updateLCD(&motor); }
+  while (digitalRead(BUTTON_PIN) == HIGH)  { delay(10); }
   delay(50);
 
   // ── Motor 1 (X-axis) ──────────────────────────────────────────────────
