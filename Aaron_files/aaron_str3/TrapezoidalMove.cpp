@@ -68,9 +68,16 @@ void updateLCD(MotorConfig* m) {
   lastUpdate = micros();
 
   char posStr[8];
-  dtostrf((float)m->position / m->stepsPerRev, 6, 2, posStr);
+  char unit[4];
+  if (m->mmPerRev > 0.0f) {
+    dtostrf((float)m->position / m->stepsPerRev * m->mmPerRev, 6, 1, posStr);
+    strncpy(unit, "mm", sizeof(unit));
+  } else {
+    dtostrf((float)m->position / m->stepsPerRev, 6, 2, posStr);
+    strncpy(unit, "rev", sizeof(unit));
+  }
   char line[17];
-  snprintf(line, sizeof(line), "M%d Pos:%s rev", m->id, posStr);
+  snprintf(line, sizeof(line), "M%d Pos:%s%s", m->id, posStr, unit);
   m->lcd->setCursor(0, 0);
   m->lcd->print(line);
 
@@ -246,7 +253,7 @@ static void runTrapezoid(MotorConfig* m,
     else         m->limitHomeFlag = (m->limitHomePin >= 0 && digitalRead(m->limitHomePin) == LOW);
   }
 
-  resetTach(m);
+  if (m->tachPin >= 0) resetTach(m);
 
   // ── Accel ──
   startTime = micros();
@@ -323,14 +330,17 @@ static void runTrapezoid(MotorConfig* m,
   float tDecelExp  = (decelSteps  > 0) ? cruiseSpeed / decelRate : 0;
   float tTotalExp  = tAccelExp + tCruiseExp + tDecelExp;
 
-  float tachRevs        = getTachRevolutions(m);
-  float commandedRevs   = (float)(accelSteps + cruiseSteps + decelSteps) / m->stepsPerRev;
-  float tachErr         = tachRevs - commandedRevs;
+  float commandedRevs = (float)(accelSteps + cruiseSteps + decelSteps) / m->stepsPerRev;
 
   Serial.print("--- Motor "); Serial.print(m->id); Serial.println(" Move Complete ---");
-  Serial.print("Commanded: "); Serial.print(commandedRevs, 3); Serial.print(" rev | ");
-  Serial.print("Tach: ");      Serial.print(tachRevs,      3); Serial.print(" rev | ");
-  Serial.print("Error: ");     Serial.print(tachErr,        3); Serial.println(" rev");
+  if (m->tachPin >= 0) {
+    float tachRevs = getTachRevolutions(m);
+    Serial.print("Commanded: "); Serial.print(commandedRevs, 3); Serial.print(" rev | ");
+    Serial.print("Tach: ");      Serial.print(tachRevs,      3); Serial.print(" rev | ");
+    Serial.print("Error: ");     Serial.print(tachRevs - commandedRevs, 3); Serial.println(" rev");
+  } else {
+    Serial.print("Commanded: "); Serial.print(commandedRevs, 3); Serial.println(" rev");
+  }
   Serial.print("Position: "); Serial.println(m->position);
 
   Serial.print("Accel:  Expected="); Serial.print(tAccelExp, 3);
@@ -489,9 +499,8 @@ void findEnd(MotorConfig* m, float slowRPS) {
 void calibrateAxis(MotorConfig* m, float slowRPS) {
   if (!m->hasLimits) { Serial.println("calibrateAxis: no limits configured."); return; }
   homeAxis(m, slowRPS);
-  resetTach(m);   // reset after homing so tach measures only home→end travel
+  if (m->tachPin >= 0) resetTach(m);  // reset after homing so tach measures only home→end travel
   findEnd(m, slowRPS);
-  float tachRevs = getTachRevolutions(m);
   float stepRevs = (float)m->axisLength / m->stepsPerRev;
   Serial.print("--- Motor "); Serial.print(m->id); Serial.println(" Calibration Complete ---");
   Serial.print("Axis (steps): "); Serial.print(m->axisLength); Serial.print(" steps | ");
@@ -501,6 +510,7 @@ void calibrateAxis(MotorConfig* m, float slowRPS) {
   }
   Serial.println();
   if (m->tachPin >= 0) {
+    float tachRevs = getTachRevolutions(m);
     Serial.print("Axis (tach):  "); Serial.print(tachRevs, 3); Serial.print(" revs");
     if (m->mmPerRev > 0.0f) {
       Serial.print(" | "); Serial.print(tachRevs * m->mmPerRev, 2); Serial.print(" mm");
