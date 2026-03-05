@@ -1,43 +1,59 @@
 // display.cpp
-// Motor status rendering — reads MotorConfig, calls LCD driver primitives.
+// Motor status rendering — reads motor state via public getters, calls LCD driver primitives.
 
 #include "display.h"
+#include "../../motor/motor_base.h"
+#include "../../motor/linear_motor.h"
 #include "../../driver/lcd/lcd.h"
 
 namespace Display {
 
-void updateMotor(MotorConfig* m) {
-  static unsigned long lastUpdate = 0;
-  if (micros() - lastUpdate < 100000) return;  // max 10 Hz
-  lastUpdate = micros();
+// ── Shared position-row helper ────────────────────────────────────────────────
 
-  // Row 0: position in mm (if pitch known) or revolutions
+static void renderPositionRow(MotorBase& m) {
   char posStr[8];
   char unit[4];
-  if (m->mmPerRev > 0.0f) {
-    dtostrf((float)m->position / m->stepsPerRev * m->mmPerRev, 6, 1, posStr);
+  if (m.mmPerRev() > 0.0f) {
+    dtostrf(m.positionRevs() * m.mmPerRev(), 6, 1, posStr);
     strncpy(unit, "mm", sizeof(unit));
   } else {
-    dtostrf((float)m->position / m->stepsPerRev, 6, 2, posStr);
+    dtostrf(m.positionRevs(), 6, 2, posStr);
     strncpy(unit, "rev", sizeof(unit));
   }
   char line[17];
-  snprintf(line, sizeof(line), "M%d Pos:%s%s", m->id, posStr, unit);
+  snprintf(line, sizeof(line), "M%d Pos:%s%s", m.id(), posStr, unit);
   LCD::setCursor(0, 0);
   LCD::print(line);
+}
 
-  // Row 1: limit switch status (digitalRead for live state; flags clear between moves)
+// ── MotorBase overload ────────────────────────────────────────────────────────
+
+void renderMotorInfo(MotorBase& m) {
+  static unsigned long lastUpdate = 0;
+  if (micros() - lastUpdate < 100000) return;
+  lastUpdate = micros();
+
+  renderPositionRow(m);
   LCD::setCursor(0, 1);
-  if (m->hasLimits) {
-    bool atEnd  = (digitalRead(m->limitEndPin)  == LOW);
-    bool atHome = (digitalRead(m->limitHomePin) == LOW);
-    if      (atEnd && atHome) LCD::print("!!BOTH LIMITS!! ");
-    else if (atEnd)           LCD::print("** END  LIMIT **");
-    else if (atHome)          LCD::print("** HOME LIMIT **");
-    else                      LCD::print("   Status: OK   ");
-  } else {
-    LCD::print("  Motor Only    ");
-  }
+  LCD::print("  Motor Only    ");
+}
+
+// ── LinearMotor overload ──────────────────────────────────────────────────────
+
+void renderMotorInfo(LinearMotor& m) {
+  static unsigned long lastUpdate = 0;
+  if (micros() - lastUpdate < 100000) return;
+  lastUpdate = micros();
+
+  renderPositionRow(m);
+
+  LCD::setCursor(0, 1);
+  bool end  = m.atEnd();
+  bool home = m.atHome();
+  if      (end && home) LCD::print("!!BOTH LIMITS!! ");
+  else if (end)         LCD::print("** END  LIMIT **");
+  else if (home)        LCD::print("** HOME LIMIT **");
+  else                  LCD::print("   Status: OK   ");
 }
 
 } // namespace Display

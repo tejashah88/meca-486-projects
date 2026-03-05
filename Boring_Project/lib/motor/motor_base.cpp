@@ -1,133 +1,136 @@
-// motion_prof.cpp
-// Trapezoidal motion profile engine.
-// runTrapezoid, runLimitDecel, and limitTriggered are private to this translation unit.
+// motor_base.cpp
+// MotorBase: axis init and trapezoidal motion profile engine.
+// All hardware pin access is delegated to the StepperDriver.
 
-#include "motion_prof.h"
-#include "../../driver/str3/str3.h"
-#include "../../driver/limit_sw/limit_sw.h"
+#include "motor_base.h"
+
+// ── Init / direction ──────────────────────────────────────────────────────────
+
+void MotorBase::init(uint8_t id, StepperDriver* driver) {
+  _id            = id;
+  _driver        = driver;
+  _stepsPerRev   = driver->stepsPerRev();   // cache for fast loop access
+  _hasLimits     = false;
+  _limitEndPin   = -1;
+  _limitHomePin  = -1;
+  _mmPerRev      = 0.0f;
+  _maxRPS        = 0.0f;
+  _limitStopRevs = 2.0f;
+  _position      = 0;
+  _speedRPS      = 0.0f;
+  _movingForward = true;
+  _limitEndFlag  = false;
+  _limitHomeFlag = false;
+
+  driver->init();
+}
+
+void MotorBase::setDirection(bool forward) {
+  _movingForward = forward;
+  _driver->setDirection(forward);
+}
 
 // ── Private helpers ───────────────────────────────────────────────────────────
 
-namespace {
-
-// Direction-aware limit check using ISR-set flags.
-// Only blocks movement toward the triggered limit; allows reverse away.
-// Always returns false when hasLimits = false.
-static bool limitTriggered(MotorConfig* m) {
-  if (!m->hasLimits) return false;
-  bool movingTowardEnd = (digitalRead(m->dirPin) == LOW) ^ m->invertDir;
-  if (movingTowardEnd) return m->limitEndFlag;
-  else                 return m->limitHomeFlag;
+bool MotorBase::limitTriggered() {
+  if (!_hasLimits) return false;
+  return _movingForward ? _limitEndFlag : _limitHomeFlag;
 }
 
 // Fixed decel rate: a = (maxRPS * stepsPerRev)² / (2 * limitStopRevs * stepsPerRev)
-// Stops the motor from maxRPS within limitStopRevs revolutions.
-// At current (lower) speed, stop distance = v²/(2a) ≤ limitStopRevs.
-static void runLimitDecel(MotorConfig* m, float currentSpeedStepsPerSec, int8_t dir) {
-  if (m->limitStopRevs <= 0.0f || m->maxRPS <= 0.0f) return;
+// Stops the motor from _maxRPS within _limitStopRevs revolutions.
+void MotorBase::runLimitDecel(float currentSpeedStepsPerSec, int8_t dir) {
+  if (_limitStopRevs <= 0.0f || _maxRPS <= 0.0f) return;
   if (currentSpeedStepsPerSec < 1.0f) currentSpeedStepsPerSec = 1.0f;
 
-  float maxSpeedSteps = m->maxRPS * m->stepsPerRev;
-  int   maxStopSteps  = (int)(m->limitStopRevs * m->stepsPerRev);
+  float maxSpeedSteps = _maxRPS * _stepsPerRev;
+  int   maxStopSteps  = (int)(_limitStopRevs * _stepsPerRev);
   float decelRate     = (maxSpeedSteps * maxSpeedSteps) / (2.0f * maxStopSteps);
   int   stopSteps     = (int)(currentSpeedStepsPerSec * currentSpeedStepsPerSec / (2.0f * decelRate));
   if (stopSteps < 1) return;
 
   Serial.print("Limit decel: "); Serial.print(stopSteps);
-  Serial.print(" steps ("); Serial.print((float)stopSteps / m->stepsPerRev, 3);
+  Serial.print(" steps ("); Serial.print((float)stopSteps / _stepsPerRev, 3);
   Serial.println(" revs)");
 
   for (int j = 0; j < stopSteps; j++) {
     float speed = sqrt(2.0f * decelRate * (stopSteps - j));
     if (speed < 1.0f) speed = 1.0f;
-    unsigned long stepDelay = (unsigned long)(1000000.0f / speed);
-    m->speedRPS = speed / m->stepsPerRev;
-    digitalWrite(m->stepPin, HIGH);
-    delayMicroseconds(stepDelay / 2);
-    digitalWrite(m->stepPin, LOW);
-    delayMicroseconds(stepDelay / 2);
-    m->position += dir;
+    unsigned long halfPeriod = (unsigned long)(500000.0f / speed);
+    _speedRPS = speed / _stepsPerRev;
+    _driver->step(halfPeriod);
+    _position += dir;
   }
-  m->speedRPS = 0;
+  _speedRPS = 0;
 }
 
 // Core 3-phase step executor: accel → cruise → decel.
 // Speed ramp uses v = sqrt(2 * a * distance).
-static void runTrapezoid(MotorConfig* m,
-                         int accelSteps, int cruiseSteps, int decelSteps,
-                         float cruiseSpeed, float accelRate, float decelRate,
-                         int8_t dir) {
+void MotorBase::runTrapezoid(int accelSteps, int cruiseSteps, int decelSteps,
+                              float cruiseSpeed, float accelRate, float decelRate,
+                              int8_t dir) {
   unsigned long stepDelay;
   float speed;
   unsigned long startTime, accelEnd, cruiseEnd, decelEnd;
 
   // Pre-seed the flag for whichever limit we're moving toward.
   // The ISR fires on FALLING edge; if the switch is already held LOW, no edge fires.
-  if (m->hasLimits) {
-    if (dir > 0) m->limitEndFlag  = LimitSw::endActive(m);
-    else         m->limitHomeFlag = LimitSw::homeActive(m);
+  if (_hasLimits) {
+    if (dir > 0) _limitEndFlag  = (_limitEndPin  >= 0 && digitalRead(_limitEndPin)  == LOW);
+    else         _limitHomeFlag = (_limitHomePin >= 0 && digitalRead(_limitHomePin) == LOW);
   }
 
   // ── Accel ──────────────────────────────────────────────────────────────────
   startTime = micros();
   for (int i = 0; i < accelSteps; i++) {
-    if (limitTriggered(m)) {
+    if (limitTriggered()) {
       Serial.print("Limit hit during accel at ");
-      Serial.print(m->speedRPS, 3); Serial.println(" RPS — decelling to stop.");
-      runLimitDecel(m, m->speedRPS * m->stepsPerRev, dir);
+      Serial.print(_speedRPS, 3); Serial.println(" RPS — decelling to stop.");
+      runLimitDecel(_speedRPS * _stepsPerRev, dir);
       break;
     }
     speed = sqrt(2.0 * accelRate * i);
     if (speed < 1.0) speed = 1.0;
     stepDelay = (unsigned long)(1000000.0 / speed);
-    digitalWrite(m->stepPin, HIGH);
-    delayMicroseconds(stepDelay / 2);
-    digitalWrite(m->stepPin, LOW);
-    delayMicroseconds(stepDelay / 2);
-    m->position += dir;
-    m->speedRPS = speed / m->stepsPerRev;
+    _driver->step(stepDelay / 2);
+    _position += dir;
+    _speedRPS = speed / _stepsPerRev;
   }
   accelEnd = micros();
 
   // ── Cruise ─────────────────────────────────────────────────────────────────
   if (cruiseSteps > 0) {
     stepDelay = (unsigned long)(1000000.0 / cruiseSpeed);
-    m->speedRPS = cruiseSpeed / m->stepsPerRev;
+    _speedRPS = cruiseSpeed / _stepsPerRev;
     for (int i = 0; i < cruiseSteps; i++) {
-      if (limitTriggered(m)) {
+      if (limitTriggered()) {
         Serial.print("Limit hit during cruise at ");
-        Serial.print(m->speedRPS, 3); Serial.println(" RPS — decelling to stop.");
-        runLimitDecel(m, cruiseSpeed, dir);
+        Serial.print(_speedRPS, 3); Serial.println(" RPS — decelling to stop.");
+        runLimitDecel(cruiseSpeed, dir);
         break;
       }
-      digitalWrite(m->stepPin, HIGH);
-      delayMicroseconds(stepDelay / 2);
-      digitalWrite(m->stepPin, LOW);
-      delayMicroseconds(stepDelay / 2);
-      m->position += dir;
+      _driver->step(stepDelay / 2);
+      _position += dir;
     }
   }
   cruiseEnd = micros();
 
   // ── Decel ──────────────────────────────────────────────────────────────────
   for (int i = 0; i < decelSteps; i++) {
-    if (limitTriggered(m)) {
+    if (limitTriggered()) {
       Serial.print("Limit hit during decel at ");
-      Serial.print(m->speedRPS, 3); Serial.println(" RPS — decelling to stop.");
-      runLimitDecel(m, m->speedRPS * m->stepsPerRev, dir);
+      Serial.print(_speedRPS, 3); Serial.println(" RPS — decelling to stop.");
+      runLimitDecel(_speedRPS * _stepsPerRev, dir);
       break;
     }
     speed = sqrt(2.0 * decelRate * (decelSteps - i));
     if (speed < 1.0) speed = 1.0;
     stepDelay = (unsigned long)(1000000.0 / speed);
-    digitalWrite(m->stepPin, HIGH);
-    delayMicroseconds(stepDelay / 2);
-    digitalWrite(m->stepPin, LOW);
-    delayMicroseconds(stepDelay / 2);
-    m->position += dir;
-    m->speedRPS = speed / m->stepsPerRev;
+    _driver->step(stepDelay / 2);
+    _position += dir;
+    _speedRPS = speed / _stepsPerRev;
   }
-  m->speedRPS = 0;
+  _speedRPS = 0;
   decelEnd = micros();
 
   // ── Serial timing report ───────────────────────────────────────────────────
@@ -141,11 +144,11 @@ static void runTrapezoid(MotorConfig* m,
   float tDecelExp  = (decelSteps  > 0) ? cruiseSpeed / decelRate : 0;
   float tTotalExp  = tAccelExp + tCruiseExp + tDecelExp;
 
-  float commandedRevs = (float)(accelSteps + cruiseSteps + decelSteps) / m->stepsPerRev;
+  float commandedRevs = (float)(accelSteps + cruiseSteps + decelSteps) / _stepsPerRev;
 
-  Serial.print("--- Motor "); Serial.print(m->id); Serial.println(" Move Complete ---");
+  Serial.print("--- Motor "); Serial.print(_id); Serial.println(" Move Complete ---");
   Serial.print("Commanded: "); Serial.print(commandedRevs, 3); Serial.println(" rev");
-  Serial.print("Position: "); Serial.println(m->position);
+  Serial.print("Position: "); Serial.println(_position);
 
   Serial.print("Accel:  Expected="); Serial.print(tAccelExp, 3);
   Serial.print("s, Actual="); Serial.print(tAccel, 3); Serial.println("s");
@@ -163,75 +166,64 @@ static void runTrapezoid(MotorConfig* m,
   Serial.println("%)");
 }
 
-} // anonymous namespace
-
 // ── Public move functions ─────────────────────────────────────────────────────
 
-namespace MotionProf {
-
-void profileMove(MotorConfig* m,
-                 float accelRevs, float cruiseRevs, float decelRevs,
-                 float cruiseRPS) {
-  STR3::setDir(m, accelRevs > 0);
+void MotorBase::manualTrapMove(float accelRevs, float cruiseRevs, float decelRevs,
+                                float cruiseRPS) {
+  setDirection(accelRevs > 0);
   int8_t dir = (accelRevs > 0) ? 1 : -1;
 
-  int aSteps = (int)(abs(accelRevs)  * m->stepsPerRev);
-  int cSteps = (int)(abs(cruiseRevs) * m->stepsPerRev);
-  int dSteps = (int)(abs(decelRevs)  * m->stepsPerRev);
+  int aSteps = (int)(abs(accelRevs)  * _stepsPerRev);
+  int cSteps = (int)(abs(cruiseRevs) * _stepsPerRev);
+  int dSteps = (int)(abs(decelRevs)  * _stepsPerRev);
 
-  float cruiseSpeed = cruiseRPS * m->stepsPerRev;
+  float cruiseSpeed = cruiseRPS * _stepsPerRev;
   float accelRate   = (cruiseSpeed * cruiseSpeed) / (2.0 * aSteps);
   float decelRate   = (cruiseSpeed * cruiseSpeed) / (2.0 * dSteps);
 
-  Serial.print("--- Motor "); Serial.print(m->id); Serial.println(" Profile Move ---");
+  Serial.print("--- Motor "); Serial.print(_id); Serial.println(" Profile Move ---");
   Serial.print("Accel="); Serial.print(accelRevs);
   Serial.print(", Cruise="); Serial.print(cruiseRevs);
   Serial.print(", Decel="); Serial.print(decelRevs);
   Serial.print(" rev, RPS="); Serial.println(cruiseRPS);
 
-  runTrapezoid(m, aSteps, cSteps, dSteps, cruiseSpeed, accelRate, decelRate, dir);
+  runTrapezoid(aSteps, cSteps, dSteps, cruiseSpeed, accelRate, decelRate, dir);
 }
 
-void trapezoidalMove(MotorConfig* m, float revolutions, float maxRPS, float totalTime) {
-  int    totalSteps = abs(revolutions * m->stepsPerRev);
-  STR3::setDir(m, revolutions > 0);
+void MotorBase::autoTrapMove(float revolutions, float maxRPS, float totalTime) {
+  int    totalSteps = abs(revolutions * _stepsPerRev);
+  setDirection(revolutions > 0);
   int8_t dir = (revolutions > 0) ? 1 : -1;
 
-  float maxSpeed = maxRPS * m->stepsPerRev;
+  float maxSpeed = maxRPS * _stepsPerRev;
   float tAccel   = totalTime - (totalSteps / maxSpeed);
   float tCruise  = totalTime - 2.0 * tAccel;
 
   if (tAccel <= 0 || tCruise < 0) {
-    // Triangular — cannot reach maxRPS in the given time / distance
     float peak      = (2.0 * totalSteps) / totalTime;
     float tRamp     = totalTime / 2.0;
     float a         = peak / tRamp;
     int   halfSteps = totalSteps / 2;
-    runTrapezoid(m, halfSteps, 0, totalSteps - halfSteps, peak, a, a, dir);
+    runTrapezoid(halfSteps, 0, totalSteps - halfSteps, peak, a, a, dir);
   } else {
     float a    = maxSpeed / tAccel;
     int aSteps = (int)(0.5 * a * tAccel * tAccel);
     int cSteps = (int)(maxSpeed * tCruise);
     int dSteps = totalSteps - aSteps - cSteps;
-    runTrapezoid(m, aSteps, cSteps, dSteps, maxSpeed, a, a, dir);
+    runTrapezoid(aSteps, cSteps, dSteps, maxSpeed, a, a, dir);
   }
 }
 
-void rotate(MotorConfig* m, float revolutions, float rps) {
-  int    total      = abs((int)(revolutions * m->stepsPerRev));
-  int8_t dir        = (revolutions > 0) ? 1 : -1;
-  unsigned long halfPeriod = (unsigned long)(500000.0 / (rps * m->stepsPerRev));
+void MotorBase::spinRevs(float revolutions, float rps) {
+  int    total     = abs((int)(revolutions * _stepsPerRev));
+  int8_t dir       = (revolutions > 0) ? 1 : -1;
+  unsigned long halfPeriod = (unsigned long)(500000.0 / (rps * _stepsPerRev));
 
-  STR3::setDir(m, revolutions > 0);
-  m->speedRPS = rps;
+  setDirection(revolutions > 0);
+  _speedRPS = rps;
   for (int i = 0; i < total; i++) {
-    digitalWrite(m->stepPin, HIGH);
-    delayMicroseconds(halfPeriod);
-    digitalWrite(m->stepPin, LOW);
-    delayMicroseconds(halfPeriod);
-    m->position += dir;
+    _driver->step(halfPeriod);
+    _position += dir;
   }
-  m->speedRPS = 0;
+  _speedRPS = 0;
 }
-
-} // namespace MotionProf
