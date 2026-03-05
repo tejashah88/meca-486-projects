@@ -13,7 +13,7 @@ MotorConfig motor2; // z-axis
 
 void setup() {
   Serial.begin(115200);
-  pinMode(BUTTON_PIN, INPUT_PULLUP);
+  pinMode(BUTTON_PIN, INPUT);
 
 
 
@@ -22,7 +22,7 @@ void setup() {
   //           mmPerRev, tachPin=-1 (disabled), tachPulsesPerRev=100, maxRPS)
   motorInit(&motor, 1, true, 51, 53, 200, false, &lcd, 2, 3, 6.0f, -1, 100, 15.0f);
   // Z-axis: no limits, 3200 steps/rev (microstepping), adjust invertDir and maxRPS as needed
-  motorInit(&motor2, 2, false, 24, 25, 3200, false, &lcd, -1, -1, 0.0f, -1, 100, 5.0f);
+  motorInit(&motor2, 2, false, 24, 25, 200, false, &lcd, -1, -1, 0.0f, -1, 100, 5.0f);
 
   attachLimitInterrupts(&motor);
   while (digitalRead(BUTTON_PIN) == HIGH)  { delay(10); updateLCD(&motor); }
@@ -52,26 +52,22 @@ void loop() {
   delay(50);
 
   // ── Motor 1 (X-axis) ──────────────────────────────────────────────────
-  trapezoidalMove(&motor, 10, 5, 2);
+  for(int i = 0; i < 5; i++){
+  trapezoidalMove(&motor, 8.33,3 , 5);// distance, max speed, total time
   delay(500);
-  profileMove(&motor2,  2,  10,  2, 10);//1 rev = 6mm
-  profileMove(&motor2,  -2,  -10,  -2, 10);
-   delay(500);
-  trapezoidalMove(&motor, 10, 5, 2);
-   delay(500);
-  profileMove(&motor2,  2,  10,  2, 10);
-  profileMove(&motor2,  -2,  -10,  -2, 10);
-   delay(500);
-  trapezoidalMove(&motor, 10, 5, 2);
-  delay(500);
-  profileMove(&motor2,  2,  10,  2, 10);
-  profileMove(&motor2,  -2,  -10,  -2, 10);
-  delay(500);
+  profileMove(&motor2,  2,  30.48,  2, 15);//1 rev = 6mm
+  profileMove(&motor2,  -2,  -30.48,  -2, 15);
+   delay(500);}
 
+  
   moveToHome(&motor, 15);
+  
 
+
+   
   // ── Motor 2 (Z-axis) ──────────────────────────────────────────────────
 
-
+// 50mm between bores
+// 6 in bore, 10mm after
   //trapezoidalMove(&motor2, 10, 5, 10);        // distance, max speed, total time
 }
