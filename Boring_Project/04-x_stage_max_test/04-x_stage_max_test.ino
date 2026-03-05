@@ -12,6 +12,7 @@
 #include "lib/driver/stepper/str3.h"
 #include "lib/motor/linear_motor.h"
 #include "lib/driver/lcd/lcd.h"
+#include "lib/util/fstr.h"
 
 LiquidCrystal lcd(7, 8, 4, 5, 6, 11);
 STR3        xDriver(51, 53, 200);
@@ -89,10 +90,10 @@ void loop() {
 
     LCD::clear();
     char buf[17];
-    snprintf(buf, sizeof(buf), "Spd %d/%d %.1fRPS", i + 1, numSpeedLevels, rps);
+    snprintf(buf, sizeof(buf), "Spd %d/%d %sRPS", i + 1, numSpeedLevels, fstr(rps, 1));
     LCD::print(buf);
     LCD::setCursor(0, 1);
-    snprintf(buf, sizeof(buf), "a=%.0f r/s2", accelRevS2);
+    snprintf(buf, sizeof(buf), "a=%s r/s2", fstr(accelRevS2, 0));
     LCD::print(buf);
 
     motor.manualTrapMove(rampRevs, CRUISE_REVS, rampRevs, rps);

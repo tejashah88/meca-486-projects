@@ -32,6 +32,7 @@ public:
   void disable() override;
 
 protected:
-  int  _dirPin, _stepPin, _stepsPerRev, _enablePin;
+  int  _dirPin, _stepPin, _stepsPerRev;
   bool _invertDir;
+  int  _enablePin;
 };

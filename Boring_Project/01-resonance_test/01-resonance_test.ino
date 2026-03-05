@@ -6,6 +6,7 @@
 #include <LiquidCrystal.h>
 #include "lib/driver/stepper/str3.h"
 #include "lib/driver/lcd/lcd.h"
+#include "lib/util/fstr.h"
 
 LiquidCrystal lcd(7, 8, 4, 5, 6, 11);
 STR3 zDriver(24, 25, 3200);
@@ -41,7 +42,7 @@ void setup() {
   LCD::print("Z-Axis Run");
   LCD::setCursor(0, 1);
   char buf[17];
-  snprintf(buf, sizeof(buf), "RPS: %.2f", currentRPS);
+  snprintf(buf, sizeof(buf), "RPS:%s", fstr(currentRPS, 2));
   LCD::print(buf);
 
   Serial.println("=== Z-AXIS RESONANCE TEST ===");
@@ -84,7 +85,7 @@ void loop() {
   if (nowMs - lastLCDMs >= 100) {
     lastLCDMs = nowMs;
     char buf[17];
-    snprintf(buf, sizeof(buf), "%.2f RPS    ", currentRPS);
+    snprintf(buf, sizeof(buf), "%s RPS  ", fstr(currentRPS, 2));
     LCD::setCursor(0, 0);
     LCD::print(buf);
     snprintf(buf, sizeof(buf), "%ld Hz      ", (long)(currentRPS * spr));
