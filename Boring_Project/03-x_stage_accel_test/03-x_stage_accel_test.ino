@@ -12,8 +12,8 @@
 #include "lib/driver/lcd/lcd.h"
 #include "lib/util/fstr.h"
 
-LiquidCrystal lcd(7, 8, 4, 5, 6, 11);
-STR3        xDriver(51, 53, 200);
+LiquidCrystal lcd(7, 8, 4, 5, 6, 11);  // RS, EN, D4, D5, D6, D7
+STR3        xDriver(51, 53, 200);       // dirPin, stepPin, stepsPerRev
 LinearMotor motor;
 
 const int   BUTTON_PIN  = 22;
@@ -33,17 +33,17 @@ void setup() {
   Serial.begin(115200);
   pinMode(BUTTON_PIN, INPUT_PULLUP);
 
-  motor.init(1, &xDriver, 2, 3, 6.0f, 15.0f);
+  motor.init(1, &xDriver, 2, 3, 6.0f, 15.0f);  // id, driver, limitEndPin, limitHomePin, mmPerRev, maxRPS
   motor.enableLimits();
 
-  LCD::init(&lcd, 16, 2);
+  LCD::init(&lcd, 16, 2);  // lcd, cols, rows
   LCD::clear();
   LCD::print("Accel Test");
-  LCD::setCursor(0, 1);
+  LCD::setCursor(0, 1);  // col, row
   LCD::print("Calibrating...");
 
-  motor.calibrate(1.5f);
-  motor.goHome(10.0f);
+  motor.calibrate(1.5f);   // slowRPS
+  motor.goHome(10.0f);     // cruiseRPS
 
   Serial.println("=== X STAGE MAX ACCELERATION TEST ===");
   Serial.print("Cruise: "); Serial.print(CRUISE_RPS); Serial.print(" RPS, ");
@@ -69,13 +69,13 @@ void loop() {
     char buf[17];
     snprintf(buf, sizeof(buf), "Accel %d/%d", i + 1, numLevels);
     LCD::print(buf);
-    LCD::setCursor(0, 1);
-    snprintf(buf, sizeof(buf), "%s rev/s^2", fstr(accelRevS2, 0));
+    LCD::setCursor(0, 1);  // col, row
+    snprintf(buf, sizeof(buf), "%s rev/s^2", fstr(accelRevS2, 0));  // fstr: val, decimals
     LCD::print(buf);
 
-    motor.manualTrapMove(ramp, CRUISE_REVS, ramp, CRUISE_RPS);
+    motor.manualTrapMove(ramp, CRUISE_REVS, ramp, CRUISE_RPS);  // accelRevs, cruiseRevs, decelRevs, cruiseRPS
     delay(300);
-    motor.goHome(10.0f);
+    motor.goHome(10.0f);  // cruiseRPS
     delay(300);
 
     if (i < numLevels - 1) {
@@ -89,6 +89,6 @@ void loop() {
   Serial.println("\n=== MAX ACCEL TEST COMPLETE ===\n");
   LCD::clear();
   LCD::print("Done!");
-  LCD::setCursor(0, 1);
+  LCD::setCursor(0, 1);  // col, row
   LCD::print("Press to repeat");
 }

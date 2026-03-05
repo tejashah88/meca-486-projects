@@ -11,68 +11,67 @@
 
 const int BUTTON_PIN = 22;
 
-LiquidCrystal lcd(7, 8, 4, 5, 6, 11);
+LiquidCrystal lcd(7, 8, 4, 5, 6, 11);  // RS, EN, D4, D5, D6, D7
 
-STR3 xDriver(51, 53, 200);  // dirPin, stepPin, stepsPerRev
-STR3 zDriver(24, 25, 3200);
+STR3 xDriver(51, 53, 200);   // dirPin, stepPin, stepsPerRev
+STR3 zDriver(24, 25, 3200);  // dirPin, stepPin, stepsPerRev
 
-LinearMotor    motor;   // X-axis linear stage
-RotationalMotor motor2; // Z-axis
+LinearMotor     xMotor;   // X-axis linear stage
+RotationalMotor zMotor;   // Z-axis rotational stage
 
 void setup() {
   Serial.begin(115200);
   pinMode(BUTTON_PIN, INPUT_PULLUP);
 
-  // init(id, driver, limitEndPin, limitHomePin, mmPerRev, maxRPS)
-  motor.init(1, &xDriver, 2, 3, 6.0f, 15.0f);
-  motor2.init(2, &zDriver);
+  xMotor.init(1, &xDriver, 2, 3, 6.0f, 15.0f);  // id, driver, limitEndPin, limitHomePin, mmPerRev, maxRPS
+  zMotor.init(2, &zDriver);                       // id, driver
 
-  motor.enableLimits();
-  while (digitalRead(BUTTON_PIN) == HIGH)  { delay(10); Display::renderMotorInfo(motor); }
-  while (digitalRead(BUTTON_PIN) == LOW)   { delay(10); Display::renderMotorInfo(motor); }
+  xMotor.enableLimits();
+  while (digitalRead(BUTTON_PIN) == HIGH)  { delay(10); Display::renderMotorInfo(xMotor); }
+  while (digitalRead(BUTTON_PIN) == LOW)   { delay(10); Display::renderMotorInfo(xMotor); }
   while (digitalRead(BUTTON_PIN) == HIGH)  { delay(10); }
   delay(50);
-  //motor.findHome(1);
+  //xMotor.findHome(1);  // slowRPS
   LCD::init(&lcd);
   LCD::clear();
   LCD::print("X-Axis");
   LCD::setCursor(0, 1);
   LCD::print("Calibrating...");
-  motor.calibrate(1.5);
-  motor.goHome(20);
+  xMotor.calibrate(1.5);   // slowRPS
+  xMotor.goHome(20);       // cruiseRPS
 
-  //motor.goHome(10);
+  //xMotor.goHome(10);
 }
 
 void loop() {
-  Display::renderMotorInfo(motor);
+  Display::renderMotorInfo(xMotor);
 
   // Wait for button release, then press, then release
-  while (digitalRead(BUTTON_PIN) == LOW)   { delay(10); Display::renderMotorInfo(motor); }
-  while (digitalRead(BUTTON_PIN) == HIGH)  { delay(10); Display::renderMotorInfo(motor); }
+  while (digitalRead(BUTTON_PIN) == LOW)   { delay(10); Display::renderMotorInfo(xMotor); }
+  while (digitalRead(BUTTON_PIN) == HIGH)  { delay(10); Display::renderMotorInfo(xMotor); }
   while (digitalRead(BUTTON_PIN) == LOW)   { delay(10); }
   delay(50);
 
   // ── Motor 1 (X-axis) ──────────────────────────────────────────────────
-  motor.autoTrapMove(10, 5, 2);
+  xMotor.autoTrapMove(10, 5, 2);                  // revolutions, maxRPS, totalTime
   delay(500);
-  motor2.manualTrapMove( 2,  10,  2, 10); // 1 rev = 6mm
-  motor2.manualTrapMove(-2, -10, -2, 10);
+  zMotor.manualTrapMove( 2,  10,  2, 10);         // accelRevs, cruiseRevs, decelRevs, cruiseRPS
+  zMotor.manualTrapMove(-2, -10, -2, 10);         // accelRevs, cruiseRevs, decelRevs, cruiseRPS
   delay(500);
-  motor.autoTrapMove(10, 5, 2);
+  xMotor.autoTrapMove(10, 5, 2);                  // revolutions, maxRPS, totalTime
   delay(500);
-  motor2.manualTrapMove( 2,  10,  2, 10);
-  motor2.manualTrapMove(-2, -10, -2, 10);
+  zMotor.manualTrapMove( 2,  10,  2, 10);         // accelRevs, cruiseRevs, decelRevs, cruiseRPS
+  zMotor.manualTrapMove(-2, -10, -2, 10);         // accelRevs, cruiseRevs, decelRevs, cruiseRPS
   delay(500);
-  motor.autoTrapMove(10, 5, 2);
+  xMotor.autoTrapMove(10, 5, 2);                  // revolutions, maxRPS, totalTime
   delay(500);
-  motor2.manualTrapMove( 2,  10,  2, 10);
-  motor2.manualTrapMove(-2, -10, -2, 10);
+  zMotor.manualTrapMove( 2,  10,  2, 10);         // accelRevs, cruiseRevs, decelRevs, cruiseRPS
+  zMotor.manualTrapMove(-2, -10, -2, 10);         // accelRevs, cruiseRevs, decelRevs, cruiseRPS
   delay(500);
 
-  motor.goHome(15);
+  xMotor.goHome(15);                              // cruiseRPS
 
   // ── Motor 2 (Z-axis) ──────────────────────────────────────────────────
 
-  //motor2.autoTrapMove(10, 5, 10);   // distance, max speed, total time
+  //zMotor.autoTrapMove(10, 5, 10);               // revolutions, maxRPS, totalTime
 }

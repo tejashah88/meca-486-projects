@@ -14,8 +14,8 @@
 #include "lib/driver/lcd/lcd.h"
 #include "lib/util/fstr.h"
 
-LiquidCrystal lcd(7, 8, 4, 5, 6, 11);
-STR3        xDriver(51, 53, 200);
+LiquidCrystal lcd(7, 8, 4, 5, 6, 11);  // RS, EN, D4, D5, D6, D7
+STR3        xDriver(51, 53, 200);       // dirPin, stepPin, stepsPerRev
 LinearMotor motor;
 
 const int   BUTTON_PIN        = 22;
@@ -35,17 +35,17 @@ void setup() {
   Serial.begin(115200);
   pinMode(BUTTON_PIN, INPUT_PULLUP);
 
-  motor.init(1, &xDriver, 2, 3, 6.0f, 35.0f);
+  motor.init(1, &xDriver, 2, 3, 6.0f, 35.0f);  // id, driver, limitEndPin, limitHomePin, mmPerRev, maxRPS
   motor.enableLimits();
 
-  LCD::init(&lcd, 16, 2);
+  LCD::init(&lcd, 16, 2);  // lcd, cols, rows
   LCD::clear();
   LCD::print("Speed Test");
-  LCD::setCursor(0, 1);
+  LCD::setCursor(0, 1);  // col, row
   LCD::print("Calibrating...");
 
-  motor.calibrate(1.5f);
-  motor.goHome(15.0f);
+  motor.calibrate(1.5f);   // slowRPS
+  motor.goHome(15.0f);     // cruiseRPS
 
   float travelRevs = motor.axisLengthRevs() - 2.0f * STAGE_MARGIN_REVS;
   Serial.println("=== X STAGE MAX SPEED TEST ===");
@@ -90,15 +90,15 @@ void loop() {
 
     LCD::clear();
     char buf[17];
-    snprintf(buf, sizeof(buf), "Spd %d/%d %sRPS", i + 1, numSpeedLevels, fstr(rps, 1));
+    snprintf(buf, sizeof(buf), "Spd %d/%d %sRPS", i + 1, numSpeedLevels, fstr(rps, 1));  // fstr: val, decimals
     LCD::print(buf);
-    LCD::setCursor(0, 1);
-    snprintf(buf, sizeof(buf), "a=%s r/s2", fstr(accelRevS2, 0));
+    LCD::setCursor(0, 1);                                                                   // col, row
+    snprintf(buf, sizeof(buf), "a=%s r/s2", fstr(accelRevS2, 0));                          // fstr: val, decimals
     LCD::print(buf);
 
-    motor.manualTrapMove(rampRevs, CRUISE_REVS, rampRevs, rps);
+    motor.manualTrapMove(rampRevs, CRUISE_REVS, rampRevs, rps);  // accelRevs, cruiseRevs, decelRevs, cruiseRPS
     delay(300);
-    motor.goHome(15.0f);
+    motor.goHome(15.0f);  // cruiseRPS
     delay(300);
 
     if (i < numSpeedLevels - 1) {
@@ -112,6 +112,6 @@ void loop() {
   Serial.println("\n=== MAX SPEED TEST COMPLETE ===\n");
   LCD::clear();
   LCD::print("Done!");
-  LCD::setCursor(0, 1);
+  LCD::setCursor(0, 1);  // col, row
   LCD::print("Press to repeat");
 }

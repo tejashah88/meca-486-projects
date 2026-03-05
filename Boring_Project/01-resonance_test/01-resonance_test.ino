@@ -8,8 +8,8 @@
 #include "lib/driver/lcd/lcd.h"
 #include "lib/util/fstr.h"
 
-LiquidCrystal lcd(7, 8, 4, 5, 6, 11);
-STR3 zDriver(24, 25, 3200);
+LiquidCrystal lcd(7, 8, 4, 5, 6, 11);  // RS, EN, D4, D5, D6, D7
+STR3 zDriver(24, 25, 3200);             // dirPin, stepPin, stepsPerRev
 
 // ── CONFIGURATION ──────────────────────────────────────────────────────────────
 const int   STEP_PIN    = 25;      // must match zDriver step pin
@@ -32,17 +32,17 @@ void setup() {
   Serial.begin(115200);
 
   zDriver.init();
-  zDriver.setDirection(true);
+  zDriver.setDirection(true);  // forward
 
   pinMode(BTN_UP,   INPUT);   // external pull-down: HIGH = pressed
   pinMode(BTN_DOWN, INPUT);
 
-  LCD::init(&lcd, 16, 2);
+  LCD::init(&lcd, 16, 2);  // lcd, cols, rows
   LCD::clear();
   LCD::print("Z-Axis Run");
-  LCD::setCursor(0, 1);
+  LCD::setCursor(0, 1);  // col, row
   char buf[17];
-  snprintf(buf, sizeof(buf), "RPS:%s", fstr(currentRPS, 2));
+  snprintf(buf, sizeof(buf), "RPS:%s", fstr(currentRPS, 2));  // fstr: val, decimals
   LCD::print(buf);
 
   Serial.println("=== Z-AXIS RESONANCE TEST ===");
@@ -85,11 +85,11 @@ void loop() {
   if (nowMs - lastLCDMs >= 100) {
     lastLCDMs = nowMs;
     char buf[17];
-    snprintf(buf, sizeof(buf), "%s RPS  ", fstr(currentRPS, 2));
-    LCD::setCursor(0, 0);
+    snprintf(buf, sizeof(buf), "%s RPS  ", fstr(currentRPS, 2));  // fstr: val, decimals
+    LCD::setCursor(0, 0);                                          // col, row
     LCD::print(buf);
     snprintf(buf, sizeof(buf), "%ld Hz      ", (long)(currentRPS * spr));
-    LCD::setCursor(0, 1);
+    LCD::setCursor(0, 1);  // col, row
     LCD::print(buf);
   }
 }
