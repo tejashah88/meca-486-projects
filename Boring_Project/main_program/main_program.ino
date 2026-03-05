@@ -3,11 +3,11 @@
 // Motor 2 (Z-Axis, no limits): Dir=D24, Step=D25
 // Button: D22 | LCD: RS=7, EN=8, D4=4, D5=5, D6=6, D7=11
 
-#include "driver/stepper/str3.h"
-#include "motor/linear_motor.h"
-#include "motor/rotational_motor.h"
-#include "driver/lcd/lcd.h"
-#include "control/display/display.h"
+#include "lib/driver/stepper/str3.h"
+#include "lib/motor/linear_motor.h"
+#include "lib/motor/rotational_motor.h"
+#include "lib/driver/lcd/lcd.h"
+#include "lib/control/display/display.h"
 
 const int BUTTON_PIN = 22;
 
