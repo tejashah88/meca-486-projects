@@ -12,5 +12,5 @@ public:
   // stepsPerRev: set by SW5-SW8 on the driver (200–20000).
   // invertDir: true = invert direction logic (compensates reversed motor wiring).
   STR3(int dirPin, int stepPin, int stepsPerRev, bool invertDir = false)
-    : StepMotorDriver(dirPin, stepPin, stepsPerRev, invertDir) {}
+    : StepMotorDriver(dirPin, stepPin, -1, stepsPerRev, invertDir) {}
 };

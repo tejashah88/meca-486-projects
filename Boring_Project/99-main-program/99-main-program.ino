@@ -47,9 +47,9 @@ void loop() {
   Display::renderMotorInfo(xMotor);
 
   // Wait for button release, then press, then release
-  while (digitalRead(BUTTON_PIN) == LOW)   { delay(10); Display::renderMotorInfo(xMotor); }
   while (digitalRead(BUTTON_PIN) == HIGH)  { delay(10); Display::renderMotorInfo(xMotor); }
-  while (digitalRead(BUTTON_PIN) == LOW)   { delay(10); }
+  while (digitalRead(BUTTON_PIN) == LOW)   { delay(10); Display::renderMotorInfo(xMotor); }
+  while (digitalRead(BUTTON_PIN) == HIGH)  { delay(10); }
   delay(50);
 
   // ── Motor 1 (X-axis) ──────────────────────────────────────────────────

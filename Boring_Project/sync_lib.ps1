@@ -1,6 +1,7 @@
 # sync_lib.ps1
-# Copies Boring_Project\lib\ and Boring_Project\src\*.cpp into every
-# subdirectory that contains a .ino sketch.
+# Syncs shared code into every subdirectory that contains a .ino sketch:
+#   lib\  -> sketch\lib\   (headers only; Arduino resolves #include "lib/..." from here)
+#   src\  -> sketch\       (*.cpp files at sketch root, where Arduino compiles them)
 # Run from anywhere: powershell -ExecutionPolicy Bypass -File sync_lib.ps1
 
 $scriptDir = Split-Path -Parent $MyInvocation.MyCommand.Path

@@ -3,10 +3,10 @@
 
 #include "lib/driver/stepper/step_motor_driver.h"
 
-StepMotorDriver::StepMotorDriver(int dirPin, int stepPin, int stepsPerRev,
-                                  bool invertDir, int enablePin)
-  : _dirPin(dirPin), _stepPin(stepPin), _stepsPerRev(stepsPerRev),
-    _invertDir(invertDir), _enablePin(enablePin) {}
+StepMotorDriver::StepMotorDriver(int dirPin, int stepPin, int enablePin,
+                                  int stepsPerRev, bool invertDir)
+  : _dirPin(dirPin), _stepPin(stepPin), _enablePin(enablePin),
+    _stepsPerRev(stepsPerRev), _invertDir(invertDir) {}
 
 void StepMotorDriver::init() {
   pinMode(_dirPin,  OUTPUT);

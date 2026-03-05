@@ -10,11 +10,11 @@
 class StepMotorDriver : public StepperDriver {
 public:
   // dirPin / stepPin: digital output pins for direction and step signals.
+  // enablePin: optional active-HIGH enable pin; pass -1 if unused.
   // stepsPerRev: microstep-per-revolution setting (matches DIP switches on the unit).
   // invertDir: true = invert direction pin (compensates for reversed motor wiring).
-  // enablePin: optional active-HIGH enable pin; pass -1 (default) if unused.
-  StepMotorDriver(int dirPin, int stepPin, int stepsPerRev,
-                  bool invertDir = false, int enablePin = -1);
+  StepMotorDriver(int dirPin, int stepPin, int enablePin,
+                  int stepsPerRev, bool invertDir = false);
 
   // Set all pins to OUTPUT (and enable pin to OUTPUT if present).
   void init() override;

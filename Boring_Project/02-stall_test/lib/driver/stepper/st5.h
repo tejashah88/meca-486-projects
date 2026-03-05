@@ -12,6 +12,6 @@ class ST5 : public StepMotorDriver {
 public:
   // dirPin: DIR+ output. stepPin: STEP+ output. enablePin: EN+ output.
   // stepsPerRev: set by DIP switches on the driver.
-  ST5(int dirPin, int stepPin, int stepsPerRev, bool invertDir, int enablePin)
-    : StepMotorDriver(dirPin, stepPin, stepsPerRev, invertDir, enablePin) {}
+  ST5(int dirPin, int stepPin, int enablePin, int stepsPerRev, bool invertDir = false)
+    : StepMotorDriver(dirPin, stepPin, enablePin, stepsPerRev, invertDir) {}
 };
