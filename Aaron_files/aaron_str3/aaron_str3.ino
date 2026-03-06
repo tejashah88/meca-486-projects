@@ -20,9 +20,9 @@ void setup() {
   // motorInit(config, id, hasLimits, dirPin, stepPin,
   //           stepsPerRev, invertDir, lcd, limitEndPin, limitHomePin,
   //           mmPerRev, tachPin=-1 (disabled), tachPulsesPerRev=100, maxRPS)
-  motorInit(&motor, 1, true, 51, 53, 3200, false, &lcd, 2, 3, 6.0f, -1, 100, 15.0f);
+  motorInit(&motor, 1, true, 51, 53, 200, false, &lcd, 2, 3, 6.0f, -1, 100, 15.0f);
   // Z-axis: no limits, 3200 steps/rev (microstepping), adjust invertDir and maxRPS as needed
-  //motorInit(&motor2, 2, false, 24, 25, 200, false, &lcd, -1, -1, 0.0f, -1, 100, 5.0f);
+  motorInit(&motor2, 2, false, 24, 25, 200, false, &lcd, -1, -1, 0.0f, -1, 100, 5.0f);
 
   attachLimitInterrupts(&motor);
   while (digitalRead(BUTTON_PIN) == HIGH)  { delay(10); updateLCD(&motor); }
@@ -36,7 +36,8 @@ void setup() {
   lcd.setCursor(0, 1);
   lcd.print("Calibrating...");
   calibrateAxis(&motor, 1.5);
-  moveToHome(&motor, 20);
+  moveToHome(&motor, 10);
+  
 
 
   //moveToHome(&motor, 10);
@@ -52,19 +53,23 @@ void loop() {
   delay(50);
 
   // ── Motor 1 (X-axis) ──────────────────────────────────────────────────
-  //for(int i = 0; i < 5; i++){
-  //trapezoidalMove(&motor, 8.33,3 , 5);// distance, max speed, total time
-  //delay(500);
-  //profileMove(&motor2,  2,  30.48,  2, 15);//1 rev = 6mm
-  //profileMove(&motor2,  -2,  -30.48,  -2, 15);
-  // delay(500);}
-  trapezoidalMove(&motor, 8.33,3 , 5);
-  
+  // Main Program
+  for(int i = 0; i < 5; i++) {
+    trapezoidalMove(&motor, 8.33,3 , 5);// distance, max speed, total time
+    delay(500);
+    profileMove(&motor2,  2,  30.48,  2, 15);//1 rev = 6mm
+    profileMove(&motor2,  -2,  -30.48,  -2, 15);
+    delay(500);
+  }
+
+  // Current testing
+  // trapezoidalMove(&motor, 10, 20, 1);
+
   moveToHome(&motor, 5);
-  
 
 
-   
+
+
   // ── Motor 2 (Z-axis) ──────────────────────────────────────────────────
 
 // 50mm between bores
