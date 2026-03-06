@@ -85,17 +85,17 @@ bool LinearMotor::atHome() const { return _limitHomePin >= 0 && digitalRead(_lim
 // ── Private creep helpers ─────────────────────────────────────────────────────
 
 void LinearMotor::creepUntilSensor(int sensorPin, int8_t dir, float rps) {
-  unsigned long halfPeriod = (unsigned long)(500000.0 / (rps * _stepsPerRev));
+  unsigned long stepPeriod = (unsigned long)(1000000.0 / (rps * _stepsPerRev));
   while (digitalRead(sensorPin) == HIGH) {
-    _driver->step(halfPeriod);
+    _driver->step(stepPeriod);
     _position += dir;
   }
 }
 
 void LinearMotor::creepUntilSensorClear(int sensorPin, int8_t dir, float rps) {
-  unsigned long halfPeriod = (unsigned long)(500000.0 / (rps * _stepsPerRev));
+  unsigned long stepPeriod = (unsigned long)(1000000.0 / (rps * _stepsPerRev));
   while (digitalRead(sensorPin) == LOW) {
-    _driver->step(halfPeriod);
+    _driver->step(stepPeriod);
     _position += dir;
   }
 }

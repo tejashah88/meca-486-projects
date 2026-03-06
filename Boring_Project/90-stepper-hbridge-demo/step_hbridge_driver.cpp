@@ -72,20 +72,21 @@ void StepHBridgeDriver::disable() {
   analogWrite(_enbPin, 0);
 }
 
-void StepHBridgeDriver::step(unsigned long stepPeriodUs) {
+void StepHBridgeDriver::advance() {
   const int tableSize = _halfStep ? 8 : 4;
-
   if (_forward) {
     _phase = (_phase + 1) % tableSize;
   } else {
     _phase = (_phase == 0) ? (tableSize - 1) : (_phase - 1);
   }
-
   const uint8_t* row = _halfStep ? HALF_STEPS[_phase] : FULL_STEPS[_phase];
   digitalWrite(_in1, row[0]);
   digitalWrite(_in2, row[1]);
   digitalWrite(_in3, row[2]);
   digitalWrite(_in4, row[3]);
+}
 
+void StepHBridgeDriver::step(unsigned long stepPeriodUs) {
+  advance();
   delayMicroseconds(stepPeriodUs);
 }

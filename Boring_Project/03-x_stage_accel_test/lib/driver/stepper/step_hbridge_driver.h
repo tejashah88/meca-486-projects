@@ -28,6 +28,10 @@ public:
   // then hold for stepPeriodUs microseconds.
   void step(unsigned long stepPeriodUs) override;
 
+  // Advance one phase step immediately, with no delay.
+  // Use in non-blocking loops where the caller manages timing via micros().
+  void advance();
+
   // Set the direction of phase advance. forward=true increments the phase index.
   void setDirection(bool forward) override;
 

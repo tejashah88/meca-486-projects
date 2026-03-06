@@ -12,22 +12,53 @@
 L298N           driver(49,  48,  47,  46,   10,  9,   200, (uint8_t)(0.20f * 255));  // in1, in2, in3, in4, enaPin, enbPin, stepsPerRev, dutyCycle
 RotationalMotor motor;
 
+const int BUTTON_PIN = 22;
+
 void setup() {
+  // Initialize start button
+  pinMode(BUTTON_PIN, INPUT);
+
   motor.init(1, &driver);  // id, driver
+  // driver.enable();
+  // delay(1000);  // let rotor align to phase 0 before stepping
+
+  // // motor.spinRevs( 4.0f, 100.0f / 60.0f);  // revolutions, rps  (800 steps @ 100 RPM)
+  // // delay(2000);
+  // // motor.spinRevs(-2.0f,  60.0f / 60.0f);  // revolutions, rps  (400 steps back @ 60 RPM)
+
+  // // ── Trapezoidal alternatives ───────────────────────────────────────────────
+  // //motor.autoTrapMove( 4.0f, 1.5f, 3.0f);   // revolutions, maxRPS, totalTime
+  // //motor.autoTrapMove(-2.0f, 1.0f, 3.0f);   // revolutions, maxRPS, totalTime
+
+  // motor.manualTrapMove( 0.5f,  3.0f,  0.5f, 2.0f);  // accelRevs, cruiseRevs, decelRevs, cruiseRPS
+  // //motor.manualTrapMove(-0.5f, -3.0f, -0.5f, 1.0f);  // accelRevs, cruiseRevs, decelRevs, cruiseRPS
+
+  // driver.disable();
+}
+
+void loop() {
+  // Wait for button release, then press, then release
+  while (digitalRead(BUTTON_PIN) == HIGH)  { delay(10); }
+  while (digitalRead(BUTTON_PIN) == LOW) { delay(10); }
+  while (digitalRead(BUTTON_PIN) == HIGH)  { delay(10); }
+  delay(50);
+
   driver.enable();
   delay(1000);  // let rotor align to phase 0 before stepping
 
-  motor.spinRevs( 4.0f, 100.0f / 60.0f);  // revolutions, rps  (800 steps @ 100 RPM)
-  motor.spinRevs(-2.0f,  60.0f / 60.0f);  // revolutions, rps  (400 steps back @ 60 RPM)
+  // motor.spinRevs( 4.0f, 100.0f / 60.0f);  // revolutions, rps  (800 steps @ 100 RPM)
+  // delay(2000);
+  // motor.spinRevs(-2.0f,  60.0f / 60.0f);  // revolutions, rps  (400 steps back @ 60 RPM)
 
   // ── Trapezoidal alternatives ───────────────────────────────────────────────
-  //motor.autoTrapMove( 4.0f, 1.5f, 3.0f);   // revolutions, maxRPS, totalTime
+  motor.autoTrapMove( 5.0f, 1.5f, 5.0f);   // revolutions, maxRPS, totalTime
+  delay(1000);
+  motor.autoTrapMove( -5.0f, 1.5f, 5.0f);   // revolutions, maxRPS, totalTime
   //motor.autoTrapMove(-2.0f, 1.0f, 3.0f);   // revolutions, maxRPS, totalTime
 
-  //motor.manualTrapMove( 0.5f,  3.0f,  0.5f, 1.5f);  // accelRevs, cruiseRevs, decelRevs, cruiseRPS
+  // motor.manualTrapMove( 2.5f,  5.0f,  2.5f, 2.0f);  // accelRevs, cruiseRevs, decelRevs, cruiseRPS
   //motor.manualTrapMove(-0.5f, -3.0f, -0.5f, 1.0f);  // accelRevs, cruiseRevs, decelRevs, cruiseRPS
 
   driver.disable();
-}
 
-void loop() {}
+}
