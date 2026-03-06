@@ -14,11 +14,11 @@ const int   BTN_DOWN    = 23;
 
 const float MIN_RPS     = 0.1f;
 const float MAX_RPS     = 160.0f;
-const float RPS_STEP    = 0.02f;
+const float RPS_STEP    = 0.01f;
 const int   DEBOUNCE_MS = 150;
 // ──────────────────────────────────────────────────────────────────────────────
 
-float         currentRPS     = 0.5f;
+float         currentRPS     = 0.2f;
 unsigned long lastStepMicros = 0;
 unsigned long lastUpMs       = 0;
 unsigned long lastDownMs     = 0;
@@ -56,7 +56,8 @@ void loop() {
     lastUpMs = nowMs;
     currentRPS += RPS_STEP;
     if (currentRPS > MAX_RPS) currentRPS = MAX_RPS;
-    Serial.print("RPS: "); Serial.println(currentRPS, 2);
+    Serial.print("RPS: "); Serial.print(currentRPS, 2);
+    Serial.print("  | Hz: "); Serial.println(currentRPS * driver.stepsPerRev(), 1);
   }
 
   // ── Button DOWN ────────────────────────────────────────────────────────────
@@ -64,6 +65,7 @@ void loop() {
     lastDownMs = nowMs;
     currentRPS -= RPS_STEP;
     if (currentRPS < MIN_RPS) currentRPS = MIN_RPS;
-    Serial.print("RPS: "); Serial.println(currentRPS, 2);
+    Serial.print("RPS: "); Serial.print(currentRPS, 2);
+    Serial.print("  | Hz: "); Serial.println(currentRPS * driver.stepsPerRev(), 1);
   }
 }
