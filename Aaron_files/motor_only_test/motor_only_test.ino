@@ -56,7 +56,7 @@ void setup() {
   lcd.print("SPR:"); lcd.print(SPR);
 
   // hasLimits=false — no limit pins needed, no homing, no calibration
-  motorInit(&motor, 1, false, 9, 10, 22, SPR, &lcd);
+  motorInit(&motor, 1, false, 51, 53, 22, SPR, &lcd);
 
   Serial.println("=== MOTOR-ONLY TEST ===");
   Serial.print("SPR="); Serial.print(SPR);
