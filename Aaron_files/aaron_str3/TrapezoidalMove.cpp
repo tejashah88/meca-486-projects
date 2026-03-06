@@ -255,8 +255,16 @@ static void runTrapezoid(MotorConfig* m,
 
   if (m->tachPin >= 0) resetTach(m);
 
+  // Cruise period used to clamp accel/decel and for micros() compensation threshold.
+  // Below this period the sqrt() overhead (~175 µs on AVR) is non-negligible;
+  // we subtract elapsed time since the last step to absorb it, matching the
+  // approach used in the resonance sweep (22-resonance_test_step_driver_exp).
+  unsigned long cruisePeriod = (unsigned long)(1000000.0 / cruiseSpeed);
+  const unsigned long COMP_THRESHOLD_US = 1750UL;
+
   // ── Accel ──
   startTime = micros();
+  unsigned long prevUs = micros();
   for (int i = 0; i < accelSteps; i++) {
     // Check limit first — m->speedRPS reflects the last completed step's velocity.
     if (limitTriggered(m)) {
@@ -268,10 +276,23 @@ static void runTrapezoid(MotorConfig* m,
     speed = sqrt(2.0 * accelRate * i);
     if (speed < 1.0) speed = 1.0;
     stepDelay = (unsigned long)(1000000.0 / speed);
-    digitalWrite(m->stepPin, HIGH);
-    delayMicroseconds(stepDelay / 2);
-    digitalWrite(m->stepPin, LOW);
-    delayMicroseconds(stepDelay / 2);
+    if (stepDelay < cruisePeriod) stepDelay = cruisePeriod;  // clamp at cruise speed
+    if (stepDelay < COMP_THRESHOLD_US) {
+      // Absorb sqrt() overhead into the delay so actual step period matches target.
+      unsigned long elapsed = micros() - prevUs;
+      unsigned long remain  = (elapsed < stepDelay) ? (stepDelay - elapsed) : 2UL;
+      digitalWrite(m->stepPin, HIGH);
+      delayMicroseconds(remain / 2);
+      digitalWrite(m->stepPin, LOW);
+      delayMicroseconds(remain / 2);
+    } else {
+      // At low speed the sqrt overhead is negligible — step directly.
+      digitalWrite(m->stepPin, HIGH);
+      delayMicroseconds(stepDelay / 2);
+      digitalWrite(m->stepPin, LOW);
+      delayMicroseconds(stepDelay / 2);
+    }
+    prevUs = micros();
     m->position += dir;
     m->speedRPS = speed / m->stepsPerRev;  // updated after step completes
   }
@@ -279,7 +300,6 @@ static void runTrapezoid(MotorConfig* m,
 
   // ── Cruise ──
   if (cruiseSteps > 0) {
-    stepDelay = (unsigned long)(1000000.0 / cruiseSpeed);
     m->speedRPS = cruiseSpeed / m->stepsPerRev;
     for (int i = 0; i < cruiseSteps; i++) {
       if (limitTriggered(m)) {
@@ -289,15 +309,17 @@ static void runTrapezoid(MotorConfig* m,
         break;
       }
       digitalWrite(m->stepPin, HIGH);
-      delayMicroseconds(stepDelay / 2);
+      delayMicroseconds(cruisePeriod / 2);
       digitalWrite(m->stepPin, LOW);
-      delayMicroseconds(stepDelay / 2);
+      delayMicroseconds(cruisePeriod / 2);
       m->position += dir;
     }
   }
   cruiseEnd = micros();
 
   // ── Decel ──
+  // Reset prevUs so the first decel step doesn't inherit stale cruise timing.
+  prevUs = micros();
   for (int i = 0; i < decelSteps; i++) {
     // Check limit first — m->speedRPS reflects the last completed step's velocity.
     if (limitTriggered(m)) {
@@ -309,10 +331,23 @@ static void runTrapezoid(MotorConfig* m,
     speed = sqrt(2.0 * decelRate * (decelSteps - i));
     if (speed < 1.0) speed = 1.0;
     stepDelay = (unsigned long)(1000000.0 / speed);
-    digitalWrite(m->stepPin, HIGH);
-    delayMicroseconds(stepDelay / 2);
-    digitalWrite(m->stepPin, LOW);
-    delayMicroseconds(stepDelay / 2);
+    if (stepDelay < cruisePeriod) stepDelay = cruisePeriod;  // clamp at cruise speed
+    if (stepDelay < COMP_THRESHOLD_US) {
+      // Absorb sqrt() overhead — decel is monotonically increasing period so
+      // overhead adds to each step without this compensation (motor runs slow).
+      unsigned long elapsed = micros() - prevUs;
+      unsigned long remain  = (elapsed < stepDelay) ? (stepDelay - elapsed) : 2UL;
+      digitalWrite(m->stepPin, HIGH);
+      delayMicroseconds(remain / 2);
+      digitalWrite(m->stepPin, LOW);
+      delayMicroseconds(remain / 2);
+    } else {
+      digitalWrite(m->stepPin, HIGH);
+      delayMicroseconds(stepDelay / 2);
+      digitalWrite(m->stepPin, LOW);
+      delayMicroseconds(stepDelay / 2);
+    }
+    prevUs = micros();
     m->position += dir;
     m->speedRPS = speed / m->stepsPerRev;  // updated after step completes
   }
