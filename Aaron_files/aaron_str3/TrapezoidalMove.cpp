@@ -499,6 +499,7 @@ void findEnd(MotorConfig* m, float slowRPS) {
 void calibrateAxis(MotorConfig* m, float slowRPS) {
   if (!m->hasLimits) { Serial.println("calibrateAxis: no limits configured."); return; }
   homeAxis(m, slowRPS);
+  delay(1000);
   if (m->tachPin >= 0) resetTach(m);  // reset after homing so tach measures only home→end travel
   findEnd(m, slowRPS);
   float stepRevs = (float)m->axisLength / m->stepsPerRev;
