@@ -57,6 +57,14 @@ int StepHBridgeDriver::stepsPerRev() const {
 void StepHBridgeDriver::enable() {
   analogWrite(_enaPin, _dutyCycle);
   analogWrite(_enbPin, _dutyCycle);
+  // Energize coils to phase 0 so the rotor aligns to a known position.
+  // Without this, all IN pins remain LOW (L298N brake mode) and the rotor
+  // is unaligned when stepping begins, causing buzz instead of rotation.
+  const uint8_t* row = _halfStep ? HALF_STEPS[_phase] : FULL_STEPS[_phase];
+  digitalWrite(_in1, row[0]);
+  digitalWrite(_in2, row[1]);
+  digitalWrite(_in3, row[2]);
+  digitalWrite(_in4, row[3]);
 }
 
 void StepHBridgeDriver::disable() {

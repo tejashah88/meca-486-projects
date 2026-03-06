@@ -15,6 +15,7 @@ RotationalMotor motor;
 void setup() {
   motor.init(1, &driver);  // id, driver
   driver.enable();
+  delay(1000);  // let rotor align to phase 0 before stepping
 
   motor.spinRevs( 4.0f, 5.0f);  // revolutions, rps  (800 steps @ 100 RPM)
   delay(2000);
