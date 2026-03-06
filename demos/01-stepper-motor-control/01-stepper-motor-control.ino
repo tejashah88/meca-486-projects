@@ -3,10 +3,10 @@
 const int ENABLE_SIDE_A_PIN = 10;
 const int ENABLE_SIDE_B_PIN = 9;
 
-const int INPUT_PIN_1 = 7;
-const int INPUT_PIN_2 = 6;
-const int INPUT_PIN_3 = 5;
-const int INPUT_PIN_4 = 4;
+const int INPUT_PIN_1 = 49;
+const int INPUT_PIN_2 = 48;
+const int INPUT_PIN_3 = 47;
+const int INPUT_PIN_4 = 46;
 
 // Stepper motor control
 
@@ -25,12 +25,6 @@ const int DRIVER_STEPS[4][4] = {
   {LOW,  HIGH, LOW,  HIGH},
   {HIGH, LOW,  LOW,  HIGH}
 };
-
-typedef struct {
-  SegmentType type;
-  unsigned long timeframe[2];
-  int* values;
-} ProfileSegment;
 
 
 // Global variables for internal position pseudo-recording
