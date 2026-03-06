@@ -56,9 +56,9 @@ void MotorBase::runLimitDecel(float currentSpeedStepsPerSec, int8_t dir) {
   for (int j = 0; j < stopSteps; j++) {
     float speed = sqrt(2.0f * decelRate * (stopSteps - j));
     if (speed < 1.0f) speed = 1.0f;
-    unsigned long halfPeriod = (unsigned long)(500000.0f / speed);
+    unsigned long stepPeriod = (unsigned long)(1000000.0f / speed);
     _speedRPS = speed / _stepsPerRev;
-    _driver->step(halfPeriod);
+    _driver->step(stepPeriod);
     _position += dir;
   }
   _speedRPS = 0;
@@ -92,7 +92,7 @@ void MotorBase::runTrapezoid(int accelSteps, int cruiseSteps, int decelSteps,
     speed = sqrt(2.0 * accelRate * i);
     if (speed < 1.0) speed = 1.0;
     stepDelay = (unsigned long)(1000000.0 / speed);
-    _driver->step(stepDelay / 2);
+    _driver->step(stepDelay);
     _position += dir;
     _speedRPS = speed / _stepsPerRev;
   }
@@ -109,7 +109,7 @@ void MotorBase::runTrapezoid(int accelSteps, int cruiseSteps, int decelSteps,
         runLimitDecel(cruiseSpeed, dir);
         break;
       }
-      _driver->step(stepDelay / 2);
+      _driver->step(stepDelay);
       _position += dir;
     }
   }
@@ -126,7 +126,7 @@ void MotorBase::runTrapezoid(int accelSteps, int cruiseSteps, int decelSteps,
     speed = sqrt(2.0 * decelRate * (decelSteps - i));
     if (speed < 1.0) speed = 1.0;
     stepDelay = (unsigned long)(1000000.0 / speed);
-    _driver->step(stepDelay / 2);
+    _driver->step(stepDelay);
     _position += dir;
     _speedRPS = speed / _stepsPerRev;
   }
@@ -217,12 +217,12 @@ void MotorBase::autoTrapMove(float revolutions, float maxRPS, float totalTime) {
 void MotorBase::spinRevs(float revolutions, float rps) {
   int    total     = abs((int)(revolutions * _stepsPerRev));
   int8_t dir       = (revolutions > 0) ? 1 : -1;
-  unsigned long halfPeriod = (unsigned long)(500000.0 / (rps * _stepsPerRev));
+  unsigned long stepPeriod = (unsigned long)(1000000.0 / (rps * _stepsPerRev));
 
   setDirection(revolutions > 0);
   _speedRPS = rps;
   for (int i = 0; i < total; i++) {
-    _driver->step(halfPeriod);
+    _driver->step(stepPeriod);
     _position += dir;
   }
   _speedRPS = 0;

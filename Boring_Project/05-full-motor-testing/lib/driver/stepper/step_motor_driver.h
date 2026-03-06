@@ -19,8 +19,8 @@ public:
   // Set all pins to OUTPUT (and enable pin to OUTPUT if present).
   void init() override;
 
-  // Toggle step pin: HIGH for halfPeriodUs, then LOW for halfPeriodUs.
-  void step(unsigned long halfPeriodUs) override;
+  // Toggle step pin: HIGH for stepPeriodUs/2, then LOW for stepPeriodUs/2.
+  void step(unsigned long stepPeriodUs) override;
 
   // Write direction pin, accounting for invertDir.
   void setDirection(bool forward) override;

@@ -25,10 +25,8 @@ public:
   void init() override;
 
   // Advance one phase step in the current direction, write the 4 IN pins,
-  // then hold for halfPeriodUs * 2 microseconds.
-  // Total step period matches StepMotorDriver convention so MotorBase profiles
-  // (which pass halfPeriod = 500000 / (rps * spr)) work without adjustment.
-  void step(unsigned long halfPeriodUs) override;
+  // then hold for stepPeriodUs microseconds.
+  void step(unsigned long stepPeriodUs) override;
 
   // Set the direction of phase advance. forward=true increments the phase index.
   void setDirection(bool forward) override;

@@ -72,7 +72,7 @@ void StepHBridgeDriver::disable() {
   analogWrite(_enbPin, 0);
 }
 
-void StepHBridgeDriver::step(unsigned long halfPeriodUs) {
+void StepHBridgeDriver::step(unsigned long stepPeriodUs) {
   const int tableSize = _halfStep ? 8 : 4;
 
   if (_forward) {
@@ -87,7 +87,5 @@ void StepHBridgeDriver::step(unsigned long halfPeriodUs) {
   digitalWrite(_in3, row[2]);
   digitalWrite(_in4, row[3]);
 
-  // Total hold time = halfPeriodUs * 2, matching StepMotorDriver's convention
-  // so MotorBase timing (halfPeriod = 500000 / (rps * spr)) stays correct.
-  delayMicroseconds(halfPeriodUs * 2);
+  delayMicroseconds(stepPeriodUs);
 }

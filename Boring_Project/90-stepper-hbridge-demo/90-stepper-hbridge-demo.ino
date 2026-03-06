@@ -17,9 +17,8 @@ void setup() {
   driver.enable();
   delay(1000);  // let rotor align to phase 0 before stepping
 
-  motor.spinRevs( 4.0f, 5.0f);  // revolutions, rps  (800 steps @ 100 RPM)
-  delay(2000);
-  motor.spinRevs(-2.0f, 5.0f);  // revolutions, rps  (400 steps back @ 60 RPM)
+  motor.spinRevs( 4.0f, 100.0f / 60.0f);  // revolutions, rps  (800 steps @ 100 RPM)
+  motor.spinRevs(-2.0f,  60.0f / 60.0f);  // revolutions, rps  (400 steps back @ 60 RPM)
 
   // ── Trapezoidal alternatives ───────────────────────────────────────────────
   //motor.autoTrapMove( 4.0f, 1.5f, 3.0f);   // revolutions, maxRPS, totalTime

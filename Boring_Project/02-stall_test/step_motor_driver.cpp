@@ -14,11 +14,11 @@ void StepMotorDriver::init() {
   if (_enablePin >= 0) pinMode(_enablePin, OUTPUT);
 }
 
-void StepMotorDriver::step(unsigned long halfPeriodUs) {
+void StepMotorDriver::step(unsigned long stepPeriodUs) {
   digitalWrite(_stepPin, HIGH);
-  delayMicroseconds(halfPeriodUs);
+  delayMicroseconds(stepPeriodUs / 2);
   digitalWrite(_stepPin, LOW);
-  delayMicroseconds(halfPeriodUs);
+  delayMicroseconds(stepPeriodUs / 2);
 }
 
 void StepMotorDriver::setDirection(bool forward) {

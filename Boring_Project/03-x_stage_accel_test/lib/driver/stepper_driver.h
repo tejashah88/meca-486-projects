@@ -12,9 +12,9 @@ public:
   // Configure hardware pins. Called once by MotorBase::init().
   virtual void init() = 0;
 
-  // Pulse the step pin once. halfPeriodUs is the HIGH/LOW phase duration in microseconds.
-  // The motion profile computes timing; the driver handles the actual pin toggle.
-  virtual void step(unsigned long halfPeriodUs) = 0;
+  // Advance one step. stepPeriodUs is the full step period in microseconds.
+  // Each driver handles the internal timing breakdown (e.g. HIGH/LOW split) independently.
+  virtual void step(unsigned long stepPeriodUs) = 0;
 
   // Set direction. forward = true moves toward the end limit in logical space.
   virtual void setDirection(bool forward) = 0;
