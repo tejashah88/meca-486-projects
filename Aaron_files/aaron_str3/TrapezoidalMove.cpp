@@ -33,7 +33,7 @@ void motorInit(MotorConfig* m,
   m->tachPulsesPerRev  = tachPulsesPerRev;
   m->tachCount         = 0;
   m->maxRPS            = maxRPS;
-  m->limitStopRevs     = 2.0f;  // max stop distance at maxRPS; lower speeds stop proportionally shorter
+  m->limitStopRevs     = 5.0f;  // stop distance in revs after a limit hit (velocity-based decel, never exceeds this)
   m->position       = 0;
   m->endPos         = 0;
   m->axisLength     = 0;
@@ -200,21 +200,18 @@ static bool limitTriggered(MotorConfig* m) {
   else                 return m->limitHomeFlag;
 }
 
-// Fixed decel rate: a = (maxRPS * stepsPerRev)² / (2 * limitStopRevs * stepsPerRev)
-// This is the rate that stops the motor from maxRPS in exactly limitStopRevs revolutions.
-// At the current (lower) speed, stop distance = v²/(2a) ≤ limitStopRevs revs.
-// limitStopRevs = 0 or maxRPS = 0 → instant stop.
+// Velocity-based decel: decel rate is computed from the actual speed at impact
+// so the motor always stops in exactly limitStopRevs revolutions regardless of speed.
+// a = v² / (2 * limitStopRevs * stepsPerRev)
+// limitStopRevs = 0 → instant stop.
 static void runLimitDecel(MotorConfig* m, float currentSpeedStepsPerSec, int8_t dir) {
-  if (m->limitStopRevs <= 0.0f || m->maxRPS <= 0.0f) return;
+  if (m->limitStopRevs <= 0.0f) return;
   if (currentSpeedStepsPerSec < 1.0f) currentSpeedStepsPerSec = 1.0f;
 
-  float maxSpeedSteps = m->maxRPS * m->stepsPerRev;
-  int   maxStopSteps  = (int)(m->limitStopRevs * m->stepsPerRev);
-  // Fixed decel rate based on max conditions: a = vmax² / (2 * dmax)
-  float decelRate = (maxSpeedSteps * maxSpeedSteps) / (2.0f * maxStopSteps);
-  // Actual stop steps at current speed: d = v² / (2a)
-  int stopSteps = (int)(currentSpeedStepsPerSec * currentSpeedStepsPerSec / (2.0f * decelRate));
+  int stopSteps = (int)(m->limitStopRevs * m->stepsPerRev);
   if (stopSteps < 1) return;
+  // Decel rate that stops exactly at limitStopRevs from current speed
+  float decelRate = (currentSpeedStepsPerSec * currentSpeedStepsPerSec) / (2.0f * stopSteps);
 
   Serial.print("Limit decel: "); Serial.print(stopSteps);
   Serial.print(" steps ("); Serial.print((float)stopSteps / m->stepsPerRev, 3);
@@ -239,7 +236,7 @@ static void runLimitDecel(MotorConfig* m, float currentSpeedStepsPerSec, int8_t 
 // Speed ramp: v = sqrt(2 * a * distance)
 
 static void runTrapezoid(MotorConfig* m,
-                         int accelSteps, int cruiseSteps, int decelSteps,
+                         long accelSteps, long cruiseSteps, long decelSteps,
                          float cruiseSpeed, float accelRate, float decelRate,
                          int8_t dir) {
   unsigned long stepDelay;
@@ -262,15 +259,18 @@ static void runTrapezoid(MotorConfig* m,
   unsigned long cruisePeriod = (unsigned long)(1000000.0 / cruiseSpeed);
   const unsigned long COMP_THRESHOLD_US = 1750UL;
 
+  bool limitHit = false;
+
   // ── Accel ──
   startTime = micros();
   unsigned long prevUs = micros();
-  for (int i = 0; i < accelSteps; i++) {
+  for (long i = 0; i < accelSteps; i++) {
     // Check limit first — m->speedRPS reflects the last completed step's velocity.
     if (limitTriggered(m)) {
       Serial.print("Limit hit during accel at ");
       Serial.print(m->speedRPS, 3); Serial.println(" RPS — decelling to stop.");
       runLimitDecel(m, m->speedRPS * m->stepsPerRev, dir);
+      limitHit = true;
       break;
     }
     speed = sqrt(2.0 * accelRate * i);
@@ -299,13 +299,14 @@ static void runTrapezoid(MotorConfig* m,
   accelEnd = micros();
 
   // ── Cruise ──
-  if (cruiseSteps > 0) {
+  if (cruiseSteps > 0 && !limitHit) {
     m->speedRPS = cruiseSpeed / m->stepsPerRev;
-    for (int i = 0; i < cruiseSteps; i++) {
+    for (long i = 0; i < cruiseSteps; i++) {
       if (limitTriggered(m)) {
         Serial.print("Limit hit during cruise at ");
         Serial.print(m->speedRPS, 3); Serial.println(" RPS — decelling to stop.");
         runLimitDecel(m, cruiseSpeed, dir);
+        limitHit = true;
         break;
       }
       digitalWrite(m->stepPin, HIGH);
@@ -320,12 +321,13 @@ static void runTrapezoid(MotorConfig* m,
   // ── Decel ──
   // Reset prevUs so the first decel step doesn't inherit stale cruise timing.
   prevUs = micros();
-  for (int i = 0; i < decelSteps; i++) {
+  for (long i = 0; i < decelSteps && !limitHit; i++) {
     // Check limit first — m->speedRPS reflects the last completed step's velocity.
     if (limitTriggered(m)) {
       Serial.print("Limit hit during decel at ");
       Serial.print(m->speedRPS, 3); Serial.println(" RPS — decelling to stop.");
       runLimitDecel(m, m->speedRPS * m->stepsPerRev, dir);
+      limitHit = true;
       break;
     }
     speed = sqrt(2.0 * decelRate * (decelSteps - i));
@@ -404,9 +406,9 @@ void profileMove(MotorConfig* m,
   setDir(m, accelRevs > 0);
   int8_t dir = (accelRevs > 0) ? 1 : -1;
 
-  int aSteps = (int)(abs(accelRevs)  * m->stepsPerRev);
-  int cSteps = (int)(abs(cruiseRevs) * m->stepsPerRev);
-  int dSteps = (int)(abs(decelRevs)  * m->stepsPerRev);
+  long aSteps = (long)(abs(accelRevs)  * m->stepsPerRev);
+  long cSteps = (long)(abs(cruiseRevs) * m->stepsPerRev);
+  long dSteps = (long)(abs(decelRevs)  * m->stepsPerRev);
 
   float cruiseSpeed = cruiseRPS * m->stepsPerRev;
   // a = v²/(2d)
@@ -423,7 +425,7 @@ void profileMove(MotorConfig* m,
 }
 
 void trapezoidalMove(MotorConfig* m, float revolutions, float maxRPS, float totalTime) {
-  int totalSteps = abs(revolutions * m->stepsPerRev);
+  long totalSteps = (long)abs(revolutions * m->stepsPerRev);
   setDir(m, revolutions > 0);
   int8_t dir = (revolutions > 0) ? 1 : -1;
 
@@ -436,13 +438,13 @@ void trapezoidalMove(MotorConfig* m, float revolutions, float maxRPS, float tota
     float peak      = (2.0 * totalSteps) / totalTime;
     float tRamp     = totalTime / 2.0;
     float a         = peak / tRamp;
-    int   halfSteps = totalSteps / 2;
+    long  halfSteps = totalSteps / 2;
     runTrapezoid(m, halfSteps, 0, totalSteps - halfSteps, peak, a, a, dir);
   } else {
-    float a    = maxSpeed / tAccel;
-    int aSteps = (int)(0.5 * a * tAccel * tAccel);
-    int cSteps = (int)(maxSpeed * tCruise);
-    int dSteps = totalSteps - aSteps - cSteps;
+    float a      = maxSpeed / tAccel;
+    long aSteps  = (long)(0.5 * a * tAccel * tAccel);
+    long cSteps  = (long)(maxSpeed * tCruise);
+    long dSteps  = totalSteps - aSteps - cSteps;
     runTrapezoid(m, aSteps, cSteps, dSteps, maxSpeed, a, a, dir);
   }
 }
@@ -494,17 +496,18 @@ static void creepUntilSensorClear(MotorConfig* m, int sensorPin, int8_t dir, flo
 
 void homeAxis(MotorConfig* m, float slowRPS) {
   if (!m->hasLimits) { Serial.println("homeAxis: no limits configured."); return; }
+  float backoffRPS = slowRPS * 0.1f;
   Serial.print("--- Motor "); Serial.print(m->id); Serial.println(" Homing ---");
   if (digitalRead(m->limitHomePin) == LOW) {
     Serial.println("Already on home sensor — backing off until clear.");
     setDir(m, true);   // toward end = away from home
-    creepUntilSensorClear(m, m->limitHomePin, 1, slowRPS);
+    creepUntilSensorClear(m, m->limitHomePin, 1, backoffRPS);
   } else {
     setDir(m, false);  // toward home
     creepUntilSensor(m, m->limitHomePin, -1, slowRPS);
     Serial.println("Home sensor detected — backing off until clear.");
     setDir(m, true);   // toward end = away from home
-    creepUntilSensorClear(m, m->limitHomePin, 1, slowRPS);
+    creepUntilSensorClear(m, m->limitHomePin, 1, backoffRPS);
   }
   m->position = 0;  // define home as "just clear" of the sensor
   Serial.println("Home set. Position = 0.");
